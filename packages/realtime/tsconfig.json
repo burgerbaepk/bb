@@ -1,0 +1,16 @@
+{
+  "extends": "@natech/config/tsconfig/base",
+  "compilerOptions": {
+    "types": ["node"],
+    // `@upstash/realtime`'s `useRealtime` return type references an internal,
+    // non-publicly-exported `ConnectionStatus` type, which trips declaration
+    // emit's portability check even though the type is fully sound for every
+    // actual caller. This package is consumed by workspace path straight from
+    // `src/` (see `package.json`'s `main`/`types`), never from a built `dist/`,
+    // so nothing in this monorepo depends on the `.d.ts` this would produce.
+    "declaration": false,
+    "declarationMap": false
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "test/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

@@ -1,0 +1,19 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+  - 'services/*'
+  - 'tooling/*'
+
+# pnpm >= 10 blocks dependency lifecycle scripts until each is decided
+# explicitly. An undecided entry makes pnpm prompt on every invocation, which
+# deadlocks `turbo run` when several tasks share stdin.
+#
+#   esbuild        vitest's bundler; postinstall selects the platform binary
+#   unrs-resolver  native resolver behind eslint-plugin-import
+#   @parcel/watcher  native file-watcher; transitive via M15's next-intl
+#   @swc/core        AST transform behind next-intl's message-extraction plugin
+allowBuilds:
+  '@parcel/watcher': true
+  '@swc/core': true
+  esbuild: true
+  unrs-resolver: true

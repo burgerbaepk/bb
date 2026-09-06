@@ -1,0 +1,40 @@
+{
+  "name": "@natech/config",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./eslint/base": "./eslint/base.mjs",
+    "./eslint/next": "./eslint/next.mjs",
+    "./eslint/node": "./eslint/node.mjs",
+    "./eslint/rules": "./eslint/rules/index.mjs",
+    "./tsconfig/base": "./tsconfig/base.json",
+    "./tsconfig/next": "./tsconfig/next.json",
+    "./tsconfig/node": "./tsconfig/node.json",
+    "./tsconfig/react-library": "./tsconfig/react-library.json",
+    "./tailwind/theme.css": "./tailwind/theme.css",
+    "./fonts": "./fonts.ts"
+  },
+  "files": [
+    "eslint",
+    "tsconfig",
+    "tailwind",
+    "fonts.ts"
+  ],
+  "dependencies": {
+    "@eslint/js": "9.39.5",
+    "eslint-config-next": "16.3.2",
+    "eslint-plugin-import": "2.32.0",
+    "globals": "17.11.0",
+    "typescript-eslint": "8.67.0"
+  },
+  "devDependencies": {
+    "eslint": "9.39.5",
+    "typescript": "6.0.3"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "echo 'no-op'"
+  }
+}

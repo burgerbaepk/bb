@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: true
+
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # migration-diff (R8) compares against the merge base, so the gate
+          # needs more than a shallow clone.
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        # Version comes from the packageManager field in package.json.
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # ---- BUILD-PLAN §18 M00 gate ------------------------------------
+      - name: Typecheck (R11 — strict, zero any)
+        run: pnpm typecheck
+
+      - name: Lint (R1, R2, R10, R13, R17)
+        run: pnpm lint
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Brand grep (R12 — no hardcoded restaurant identity)
+        run: pnpm brand-grep
+
+      - name: Mock-data grep (defect C4)
+        run: pnpm mock-data-grep
+
+      - name: Migration diff (R8 — schema change ships with SQL)
+        run: pnpm migration-diff
+
+      - name: Formatting
+        run: pnpm format:check

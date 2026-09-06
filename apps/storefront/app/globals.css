@@ -1,0 +1,240 @@
+@import 'tailwindcss';
+@import '@natech/config/tailwind/theme.css';
+
+/* Tailwind v4 scans from this file's directory by default. The design system
+   lives outside the app, so name it explicitly. */
+@source '../app';
+@source '../components';
+@source '../../../packages/ui/src';
+
+body {
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+}
+
+:root {
+  --store-canvas: var(--color-surface);
+  --store-surface: var(--color-surface-raised);
+  --store-sunken: var(--color-surface-sunken);
+  --store-ink: var(--color-ink);
+  --store-muted: var(--color-ink-muted);
+  --store-line: var(--color-border);
+  --store-accent: var(--color-primary);
+  --store-accent-soft: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
+}
+
+@theme inline {
+  --color-store-canvas: var(--store-canvas);
+  --color-store-surface: var(--store-surface);
+  --color-store-sunken: var(--store-sunken);
+  --color-store-ink: var(--store-ink);
+  --color-store-muted: var(--store-muted);
+  --color-store-line: var(--store-line);
+  --color-store-accent: var(--store-accent);
+  --color-store-accent-soft: var(--store-accent-soft);
+}
+
+.storefront-canvas {
+  background: var(--store-canvas);
+  color: var(--store-ink);
+}
+
+.storefront-header {
+  box-shadow: 0 1px 0 0 var(--store-line);
+}
+
+/*
+ * M22 — the height the sticky header occupies, so `MenuToolbar` can stick
+ * directly beneath it and `OrderPanel` can stop short of it, without either
+ * measuring the DOM. A magic number in three files drifts the first time the
+ * header gains a row; one custom property does not.
+ *
+ * The header is logo-height plus its padding: 3rem + 1.5rem at the small step,
+ * 3.5rem + 1.5rem once the logo grows at `sm`.
+ */
+:root {
+  --store-header-h: 4.5rem;
+}
+
+@media (min-width: 40rem) {
+  :root {
+    --store-header-h: 5rem;
+  }
+}
+
+.store-hero,
+.store-footer {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--store-ink) 92%, var(--store-accent)) 0%,
+    color-mix(in srgb, var(--store-ink) 78%, var(--store-accent)) 55%,
+    color-mix(in srgb, var(--store-ink) 62%, var(--store-accent)) 100%
+  );
+}
+/* A faint dot grid reads as texture at hero scale and fades into the
+   gradient by the footer — cheaper than a background image, and no literal
+   brand colour or asset key involved (R12). */
+.store-hero::before,
+.store-footer::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, rgb(255 255 255 / 10%) 1px, transparent 1px);
+  background-size: 22px 22px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black 40%, transparent 90%);
+  pointer-events: none;
+}
+.store-icon-link {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 0.75rem;
+  padding-inline: 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--store-muted);
+  transition:
+    background-color 0.15s,
+    color 0.15s;
+}
+.store-icon-link:hover {
+  background: var(--store-sunken);
+  color: var(--store-ink);
+}
+/* The page you are on, stated in colour as well as in `aria-current`. Without
+   it the header's four controls look identical from every page, and the only
+   way to find out where you are is to tap one. */
+.store-icon-link[aria-current='page'] {
+  background: var(--store-accent-soft);
+  color: var(--store-accent);
+}
+/* The cart: the one filled control in the header, because it is the one action
+   the site exists for. Sized to `.store-icon-link` so the row stays level. */
+.store-nav-cta {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 0.75rem;
+  padding-inline: 0.875rem;
+  background: var(--store-accent);
+  color: white;
+  font-size: 0.875rem;
+  font-weight: 700;
+  transition:
+    filter 0.15s,
+    transform 0.15s;
+}
+.store-nav-cta:hover {
+  filter: brightness(1.07);
+  transform: translateY(-1px);
+}
+.store-nav-badge {
+  border-radius: 9999px;
+  background: rgb(255 255 255 / 25%);
+  padding-inline: 0.4rem;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+/* The footer's own controls. It sits on the dark gradient, so everything in
+   here carries its own palette rather than the page tokens. */
+.store-footer-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  font-family: var(--font-display, inherit);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.store-footer-chip {
+  display: flex;
+  width: 2rem;
+  height: 2rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.5rem;
+  background: rgb(255 255 255 / 10%);
+}
+.store-footer-cta,
+.store-footer-ghost {
+  display: inline-flex;
+  min-height: 3rem;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 9999px;
+  padding-inline: 1.5rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  transition:
+    transform 0.15s,
+    background-color 0.15s;
+}
+.store-footer-cta {
+  background: white;
+  color: var(--store-ink);
+}
+.store-footer-ghost {
+  border: 1px solid rgb(255 255 255 / 35%);
+  color: white;
+}
+.store-footer-cta:hover,
+.store-footer-ghost:hover {
+  transform: translateY(-1px);
+}
+.store-footer-ghost:hover {
+  background: rgb(255 255 255 / 12%);
+}
+.store-footer-link {
+  /* `flex`, not `inline-flex`. Nothing in this stylesheet sits in a Tailwind
+     layer, so every rule here outranks a utility class regardless of
+     specificity: the `flex` on the footer's phone and email links was dead,
+     both stayed inline, and the mail icon collapsed onto the end of the phone
+     number as one unreadable string. `fit-content` keeps the hover underline
+     hugging the text rather than stretching the whole column. */
+  display: flex;
+  width: fit-content;
+  min-height: 2rem;
+  align-items: center;
+  font-size: 0.875rem;
+  color: rgb(255 255 255 / 75%);
+  transition: color 0.15s;
+}
+.store-footer-link:hover {
+  color: white;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.store-product-card {
+  border-color: var(--store-line);
+}
+.store-product-card:hover,
+.store-product-card:focus-within {
+  transform: translateY(-3px);
+  border-color: color-mix(in srgb, var(--store-accent) 45%, white);
+  box-shadow: 0 18px 36px -20px color-mix(in srgb, var(--store-ink) 40%, transparent);
+}
+.store-product-media {
+  background: radial-gradient(circle at 30% 20%, var(--store-surface), var(--store-sunken) 75%);
+}
+.store-product-card:hover .store-product-media {
+  background: radial-gradient(
+    circle at 30% 20%,
+    var(--store-surface),
+    color-mix(in srgb, var(--store-accent) 6%, var(--store-sunken)) 75%
+  );
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}

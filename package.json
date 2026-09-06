@@ -1,0 +1,50 @@
+{
+  "name": "khizer-pos",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Modern restaurant point of sale, invoicing, and operations suite",
+  "packageManager": "pnpm@11.22.0",
+  "engines": {
+    "node": ">=22.11.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "brand-grep": "node scripts/brand-grep.mjs",
+    "mock-data-grep": "node scripts/mock-data-grep.mjs",
+    "migration-diff": "node scripts/migration-diff.mjs",
+    "gates": "pnpm brand-grep && pnpm mock-data-grep && pnpm tax-column-grep && pnpm migration-diff",
+    "ci": "pnpm typecheck && pnpm lint && pnpm test && pnpm gates",
+    "prepare": "husky",
+    "tax-column-grep": "node scripts/tax-column-grep.mjs",
+    "auth:owner": "pnpm --filter @natech/db db:owner",
+    "db:seed": "pnpm --filter @natech/db db:seed",
+    "db:migrate": "pnpm --filter @natech/db db:migrate"
+  },
+  "devDependencies": {
+    "@natech/config": "workspace:*",
+    "@types/node": "26.2.0",
+    "@vitest/coverage-v8": "4.1.11",
+    "eslint": "9.39.5",
+    "husky": "9.1.7",
+    "lint-staged": "17.3.0",
+    "prettier": "3.9.6",
+    "turbo": "2.10.12",
+    "typescript": "6.0.3",
+    "vitest": "4.1.11"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,mjs,js,jsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,css,yml,yaml}": [
+      "prettier --write"
+    ]
+  }
+}

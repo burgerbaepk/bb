@@ -1,0 +1,275 @@
+/**
+ * khizer-pos design tokens — BUILD-PLAN.md §14.3, §15.2, M01.
+ *
+ * Three layers, in resolution order:
+ *
+ *   --brand-*   what the operator chose. Injected as inline custom properties
+ *               on <html> by the root layout, read from the `branding` settings
+ *               key (§14.3). Absent during M01; wired in M08.
+ *   --c-*       the resolved token for the active theme. Prefers --brand-*,
+ *               falls back to a neutral default, and flips for dark.
+ *   --color-*   what Tailwind exposes as `bg-surface`, `text-ink`, and so on.
+ *
+ * A rebrand therefore changes database rows and nothing else. No rebuild, and
+ * no source change that could trip the R12 brand-grep gate.
+ *
+ * This file is the ONE sanctioned location for a literal colour value in the
+ * repository. The defaults below are deliberately neutral greys and are not any
+ * client's palette.
+ */
+
+/* The dark variant follows the explicit toggle first and the OS preference
+   otherwise, so `dark:` utilities agree with the tokens below. */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/* ---------------------------------------------------------------- light --- */
+
+:root {
+  /* ADR 0020 — the card is the operator's surface and the page steps back from
+     it, rather than the other way round. Only `--brand-surface` is ever emitted
+     by `brandCssVariables()` (§14.3): the operator picks one colour, so the
+     other two planes have to be derived from it or they stop agreeing with it
+     the moment anyone rebrands. Deriving in oklab keeps the step perceptually
+     equal at any lightness, and it is what puts a white card on a tinted ground
+     — the elevation cue the back office previously had inverted, cards sitting
+     darker than the page they were on. */
+  --c-surface: color-mix(in oklab, var(--brand-surface, oklch(100% 0 0)) 96.5%, var(--c-ink));
+  --c-surface-raised: var(--brand-surface-raised, var(--brand-surface, oklch(100% 0 0)));
+  --c-surface-sunken: color-mix(in oklab, var(--brand-surface, oklch(100% 0 0)) 91%, var(--c-ink));
+  --c-border: var(--brand-border, oklch(91% 0 0));
+  --c-border-strong: var(--brand-border-strong, oklch(78% 0 0));
+
+  --c-ink: var(--brand-ink, oklch(21% 0 0));
+  --c-ink-muted: var(--brand-ink-muted, oklch(50% 0 0));
+  --c-ink-subtle: var(--brand-ink-subtle, oklch(63% 0 0));
+  --c-ink-inverse: var(--brand-ink-inverse, oklch(99% 0 0));
+
+  --c-primary: var(--brand-primary, oklch(45% 0 0));
+  --c-primary-hover: var(--brand-primary-hover, oklch(37% 0 0));
+  --c-primary-ink: var(--brand-primary-ink, oklch(99% 0 0));
+  --c-accent: var(--brand-accent, oklch(60% 0 0));
+
+  /* R15 pairs every one of these with an icon and a text label. Colour alone
+     never carries state in this product. */
+  --c-danger: var(--brand-danger, oklch(52% 0.19 25));
+  --c-danger-soft: var(--brand-danger-soft, oklch(94% 0.03 25));
+  --c-warn: var(--brand-warn, oklch(68% 0.14 75));
+  --c-warn-soft: var(--brand-warn-soft, oklch(95% 0.04 75));
+  --c-ok: var(--brand-ok, oklch(52% 0.12 150));
+  --c-ok-soft: var(--brand-ok-soft, oklch(94% 0.04 150));
+  --c-info: var(--brand-info, oklch(52% 0.12 250));
+  --c-info-soft: var(--brand-info-soft, oklch(94% 0.03 250));
+
+  --c-focus: var(--brand-focus, oklch(55% 0.18 250));
+  --c-overlay: oklch(21% 0 0 / 45%);
+
+  --brand-radius-base: 0.625rem;
+}
+
+/* ----------------------------------------------------------------- dark --- */
+/* Defined twice on purpose: once for the OS preference when the operator has
+   made no explicit choice, once for the explicit toggle. A single media query
+   would leave the /_ds toggle unable to force dark on a light machine. */
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --c-surface: var(--brand-surface-dark, oklch(17.5% 0 0));
+    --c-surface-raised: var(--brand-surface-raised-dark, oklch(22% 0 0));
+    --c-surface-sunken: var(--brand-surface-sunken-dark, oklch(13% 0 0));
+    --c-border: var(--brand-border-dark, oklch(30% 0 0));
+    --c-border-strong: var(--brand-border-strong-dark, oklch(42% 0 0));
+
+    --c-ink: var(--brand-ink-dark, oklch(96% 0 0));
+    --c-ink-muted: var(--brand-ink-muted-dark, oklch(72% 0 0));
+    --c-ink-subtle: var(--brand-ink-subtle-dark, oklch(58% 0 0));
+    --c-ink-inverse: var(--brand-ink-inverse-dark, oklch(17.5% 0 0));
+
+    --c-primary: var(--brand-primary-dark, oklch(78% 0 0));
+    --c-primary-hover: var(--brand-primary-hover-dark, oklch(86% 0 0));
+    --c-primary-ink: var(--brand-primary-ink-dark, oklch(17.5% 0 0));
+    --c-accent: var(--brand-accent-dark, oklch(70% 0 0));
+
+    --c-danger: var(--brand-danger-dark, oklch(70% 0.17 25));
+    --c-danger-soft: var(--brand-danger-soft-dark, oklch(29% 0.07 25));
+    --c-warn: var(--brand-warn-dark, oklch(80% 0.13 75));
+    --c-warn-soft: var(--brand-warn-soft-dark, oklch(30% 0.06 75));
+    --c-ok: var(--brand-ok-dark, oklch(74% 0.13 150));
+    --c-ok-soft: var(--brand-ok-soft-dark, oklch(27% 0.06 150));
+    --c-info: var(--brand-info-dark, oklch(74% 0.12 250));
+    --c-info-soft: var(--brand-info-soft-dark, oklch(27% 0.06 250));
+
+    --c-focus: var(--brand-focus-dark, oklch(75% 0.15 250));
+    --c-overlay: oklch(8% 0 0 / 60%);
+  }
+}
+
+:root[data-theme='dark'] {
+  --c-surface: var(--brand-surface-dark, oklch(17.5% 0 0));
+  --c-surface-raised: var(--brand-surface-raised-dark, oklch(22% 0 0));
+  --c-surface-sunken: var(--brand-surface-sunken-dark, oklch(13% 0 0));
+  --c-border: var(--brand-border-dark, oklch(30% 0 0));
+  --c-border-strong: var(--brand-border-strong-dark, oklch(42% 0 0));
+
+  --c-ink: var(--brand-ink-dark, oklch(96% 0 0));
+  --c-ink-muted: var(--brand-ink-muted-dark, oklch(72% 0 0));
+  --c-ink-subtle: var(--brand-ink-subtle-dark, oklch(58% 0 0));
+  --c-ink-inverse: var(--brand-ink-inverse-dark, oklch(17.5% 0 0));
+
+  --c-primary: var(--brand-primary-dark, oklch(78% 0 0));
+  --c-primary-hover: var(--brand-primary-hover-dark, oklch(86% 0 0));
+  --c-primary-ink: var(--brand-primary-ink-dark, oklch(17.5% 0 0));
+  --c-accent: var(--brand-accent-dark, oklch(70% 0 0));
+
+  --c-danger: var(--brand-danger-dark, oklch(70% 0.17 25));
+  --c-danger-soft: var(--brand-danger-soft-dark, oklch(29% 0.07 25));
+  --c-warn: var(--brand-warn-dark, oklch(80% 0.13 75));
+  --c-warn-soft: var(--brand-warn-soft-dark, oklch(30% 0.06 75));
+  --c-ok: var(--brand-ok-dark, oklch(74% 0.13 150));
+  --c-ok-soft: var(--brand-ok-soft-dark, oklch(27% 0.06 150));
+  --c-info: var(--brand-info-dark, oklch(74% 0.12 250));
+  --c-info-soft: var(--brand-info-soft-dark, oklch(27% 0.06 250));
+
+  --c-focus: var(--brand-focus-dark, oklch(75% 0.15 250));
+  --c-overlay: oklch(8% 0 0 / 60%);
+}
+
+/* --------------------------------------------------------------- theme --- */
+
+@theme inline {
+  --color-surface: var(--c-surface);
+  --color-surface-raised: var(--c-surface-raised);
+  --color-surface-sunken: var(--c-surface-sunken);
+  --color-border: var(--c-border);
+  --color-border-strong: var(--c-border-strong);
+
+  --color-ink: var(--c-ink);
+  --color-ink-muted: var(--c-ink-muted);
+  --color-ink-subtle: var(--c-ink-subtle);
+  --color-ink-inverse: var(--c-ink-inverse);
+
+  --color-primary: var(--c-primary);
+  --color-primary-hover: var(--c-primary-hover);
+  --color-primary-ink: var(--c-primary-ink);
+  --color-accent: var(--c-accent);
+
+  --color-danger: var(--c-danger);
+  --color-danger-soft: var(--c-danger-soft);
+  --color-warn: var(--c-warn);
+  --color-warn-soft: var(--c-warn-soft);
+  --color-ok: var(--c-ok);
+  --color-ok-soft: var(--c-ok-soft);
+  --color-info: var(--c-info);
+  --color-info-soft: var(--c-info-soft);
+
+  --color-focus: var(--c-focus);
+  --color-overlay: var(--c-overlay);
+
+  /* §14.3 theme.radius is sharp | soft | round; the root layout sets the base. */
+  --radius-base: var(--brand-radius-base, 0.5rem);
+  --radius-sm: calc(var(--radius-base) * 0.5);
+  --radius-lg: calc(var(--radius-base) * 2);
+
+  /* Type scale. The POS is read at arm's length on a tablet, so the body step
+     is larger than a website's. */
+  --text-2xs: 0.6875rem;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.75rem;
+  --text-3xl: 2.25rem;
+  /* Order numbers on the KDS must be legible from two metres (§10.1). */
+  --text-kds: 3rem;
+
+  /* ADR 0020 — Geist is bundled and self-hosted, and each app binds
+     `--font-geist-sans`/`--font-geist-mono` in its root layout. It sits in the
+     fallback position so an operator's own face still wins: the chain is
+     operator's choice, then the bundled face, then whatever the device has.
+     Without a bundled face the product renders in SF Pro on the manager's Mac
+     and Roboto on the floor tablet, which is two different products. */
+  --font-display: var(
+    --brand-font-display,
+    var(--font-geist-sans, ui-sans-serif),
+    system-ui,
+    sans-serif
+  );
+  --font-body: var(--brand-font-body, var(--font-geist-sans, ui-sans-serif), system-ui, sans-serif);
+  --font-mono: var(--brand-font-mono, var(--font-geist-mono, ui-monospace), monospace);
+  --font-urdu: var(--brand-font-urdu, serif);
+
+  /* §15.2 — Nastaliq clips its descenders at Latin leading. */
+  --leading-urdu: 2;
+
+  /* The POS is operated by someone who is often holding a plate. */
+  --spacing-touch: 2.75rem;
+}
+
+/* --------------------------------------------------------------- base --- */
+
+body {
+  background-color: var(--color-surface);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* §15.2 — Urdu typography.
+
+   The last three rules are not in the plan. They come from running a full
+   Nastaliq interface in production, where each one is a visible defect if
+   missed. See packages/config/fonts.ts. */
+:where([lang='ur']) {
+  font-family: var(--font-urdu);
+  line-height: var(--leading-urdu);
+  /* Nastaliq is unreadable below 18px at arm length. */
+  font-size: max(1.125rem, 1em);
+  letter-spacing: normal;
+  text-transform: none;
+  font-stretch: normal;
+
+  /* Mehr has one weight. A synthesised bold smears the outline, and on joined
+     Nastaliq strokes that destroys the joins rather than thickening them. */
+  font-synthesis: none;
+
+  /* Nastaliq is character-based, not glyph-based. Without these the letters
+     render as disconnected shapes instead of a joined line. */
+  font-feature-settings:
+    'ccmp' 1,
+    'rlig' 1,
+    'calt' 1,
+    'liga' 1,
+    'kern' 1;
+  font-kerning: normal;
+  text-rendering: optimizeLegibility;
+}
+
+/* Weight is not an available signal in Nastaliq, so a bold utility must not
+   silently do nothing visible while the layout assumes it did something.
+   Emphasis comes from colour and from the surrounding rule instead. */
+:where([lang='ur']) :is(.font-medium, .font-semibold, .font-bold) {
+  font-weight: normal;
+}
+
+/* The taller Urdu line box stretches any flex row an icon sits in. */
+:where([lang='ur']) svg {
+  flex-shrink: 0;
+}
+
+:where(:focus-visible) {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+/* §9.3 — the PAYING pulse is the only ambient animation in the product, and it
+   is suppressed here. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://v2-10-12.turborepo.dev/schema.json",
+  "ui": "stream",
+  "globalDependencies": ["tsconfig.json", ".env.example", "packages/config/**"],
+  "globalEnv": [
+    "NODE_ENV",
+    "NEON_DATABASE_URL",
+    "NEON_DATABASE_URL_HTTP",
+    "AUTH_SECRET",
+    "AUTH_URL",
+    "ENCRYPTION_KEY",
+    "OTP_PEPPER",
+    "RESEND_API_KEY",
+    "RESEND_FROM_TRANSACTIONAL",
+    "RESEND_FROM_OTP",
+    "UPSTASH_REDIS_REST_URL",
+    "UPSTASH_REDIS_REST_TOKEN",
+    "SENTRY_DSN",
+    "SENTRY_ENVIRONMENT",
+    "NEXT_PUBLIC_POS_URL",
+    "NEXT_PUBLIC_STOREFRONT_URL"
+  ],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": [".next/**", "!.next/cache/**", "dist/**"]
+    },
+    "typecheck": {
+      "dependsOn": ["^build"]
+    },
+    "lint": {
+      "dependsOn": ["^build"]
+    },
+    "test": {
+      "dependsOn": ["^build"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    }
+  }
+}

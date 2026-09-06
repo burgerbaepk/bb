@@ -1,0 +1,35 @@
+@import 'tailwindcss';
+@import '@natech/config/tailwind/theme.css';
+
+/* Tailwind v4 scans from this file's directory by default. The design system
+   lives outside the app, so name it explicitly. */
+@source '../app';
+@source '../components';
+@source '../../../packages/ui/src';
+
+body {
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+}
+
+@media print {
+  /* Every chrome element, by kind rather than by position: the rail and the
+     page heading both moved in ADR 0020, and a structural selector that has to
+     be re-derived each time the shell changes is a sheet of QR codes printed
+     with a navigation menu across the top. */
+  body:has(.qr-admin-page) aside,
+  body:has(.qr-admin-page) header,
+  .qr-card-controls {
+    display: none !important;
+  }
+
+  body:has(.qr-admin-page) main {
+    padding: 0;
+  }
+
+  .qr-print-card {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}
