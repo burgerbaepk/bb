@@ -198,7 +198,7 @@ const OPERATIONAL_SETTINGS: readonly RegisteredSetting[] = [
     definition: {
       key: 'security.idleLockSeconds',
       label: 'Till idle lock',
-      help: 'Seconds of inactivity before staff must enter their PIN again.',
+      help: 'Seconds of inactivity before staff must enter their PIN again. 0 means the till never locks on its own.',
       group: 'SECURITY',
       kind: 'INTEGER',
       options: [],

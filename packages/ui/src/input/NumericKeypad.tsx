@@ -26,7 +26,11 @@ export function digitsToPaisa(digits: string): bigint {
   return BigInt(cleaned);
 }
 
-export type KeypadMode = 'pin' | 'amount';
+/**
+ * `percent` is whole percent points, for a percentage discount (ADR 0028).
+ * The caller converts to paisa; the keypad only ever holds digits.
+ */
+export type KeypadMode = 'pin' | 'amount' | 'percent';
 
 export interface NumericKeypadProps {
   readonly mode: KeypadMode;
@@ -60,7 +64,7 @@ export function NumericKeypad({
   mode,
   value,
   onChange,
-  maxLength = mode === 'pin' ? 6 : 9,
+  maxLength = mode === 'pin' ? 6 : mode === 'percent' ? 3 : 9,
   label,
   currencySymbol = 'Rs.',
   className,
@@ -113,7 +117,9 @@ export function NumericKeypad({
   const display =
     mode === 'pin'
       ? '•'.repeat(value.length).padEnd(Math.max(4, value.length), '·')
-      : formatPaisa(digitsToPaisa(value), { symbol: currencySymbol });
+      : mode === 'percent'
+        ? `${digitsToPaisa(value).toString()}%`
+        : formatPaisa(digitsToPaisa(value), { symbol: currencySymbol });
 
   return (
     <div

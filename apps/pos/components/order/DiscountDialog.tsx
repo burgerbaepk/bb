@@ -1,7 +1,15 @@
 'use client';
 
 import { useState } from 'react';
-import { Button, Dialog, Money, NumericKeypad, SelectField, digitsToPaisa } from '@natech/ui';
+import {
+  Button,
+  Dialog,
+  Money,
+  NumericKeypad,
+  SegmentedControl,
+  SelectField,
+  digitsToPaisa,
+} from '@natech/ui';
 import { paisa, type Paisa } from '@natech/domain';
 
 /**
@@ -17,6 +25,12 @@ import { paisa, type Paisa } from '@natech/domain';
  *
  * §8 blocks a supervisor-threshold discount while the terminal is offline,
  * because the approval cannot be verified against anything.
+ *
+ * ADR 0028 — a discount can be keyed as whole percent of the subtotal. It is
+ * converted to paisa here and stored as an amount, exactly like a rupee
+ * discount, so the order, the invoice and the exceptions report never learn a
+ * second representation; the percent is kept only in the reason text, where
+ * a manager reading the report can see what was actually offered.
  */
 const SUPERVISOR_THRESHOLD: Paisa = paisa(50000n);
 
@@ -29,6 +43,11 @@ const REASONS = [
   { value: 'Promotion', label: 'Promotion' },
 ] as const;
 
+/** Whole percent of a paisa subtotal, rounded half up to the paisa. */
+export function percentOf(subtotal: Paisa, percent: bigint): Paisa {
+  return paisa((subtotal * percent + 50n) / 100n);
+}
+
 export interface DiscountDialogProps {
   readonly open: boolean;
   readonly subtotal: Paisa;
@@ -38,11 +57,13 @@ export interface DiscountDialogProps {
 }
 
 export function DiscountDialog({ open, subtotal, offline, onClose, onApply }: DiscountDialogProps) {
+  const [mode, setMode] = useState<'amount' | 'percent'>('amount');
   const [digits, setDigits] = useState('');
   const [reason, setReason] = useState('');
   const [pin, setPin] = useState('');
 
-  const amount = paisa(digitsToPaisa(digits));
+  const percent = digitsToPaisa(digits);
+  const amount = mode === 'percent' ? percentOf(subtotal, percent) : paisa(digitsToPaisa(digits));
   const needsSupervisor = amount > SUPERVISOR_THRESHOLD;
   const tooLarge = amount > subtotal;
   const blockedOffline = offline && needsSupervisor;
@@ -56,7 +77,7 @@ export function DiscountDialog({ open, subtotal, offline, onClose, onApply }: Di
 
   const handleApply = () => {
     if (!ready) return;
-    onApply(amount, reason);
+    onApply(amount, mode === 'percent' ? `${reason} (${percent.toString()}%)` : reason);
     setDigits('');
     setReason('');
     setPin('');
@@ -83,18 +104,41 @@ export function DiscountDialog({ open, subtotal, offline, onClose, onApply }: Di
           <Money value={subtotal} symbol="Rs." />
         </div>
 
+        <SegmentedControl
+          label="Discount by"
+          value={mode}
+          onChange={(next) => {
+            // The digits mean something different in the other mode, so they
+            // are cleared rather than silently reinterpreted.
+            setMode(next);
+            setDigits('');
+          }}
+          options={[
+            { value: 'amount', label: 'Amount (Rs.)' },
+            { value: 'percent', label: 'Percent (%)' },
+          ]}
+        />
+
         <NumericKeypad
           // Remounts (and so re-autofocuses) every time the dialog reopens —
           // `Dialog` keeps children mounted across an open/close cycle, so
           // without this the keypad only ever focuses itself the first time.
-          key={String(open)}
-          mode="amount"
+          // The mode is in the key too, so switching refocuses the keypad.
+          key={`${String(open)}-${mode}`}
+          mode={mode}
           value={digits}
           onChange={setDigits}
-          label="Discount amount"
+          label={mode === 'percent' ? 'Discount percent' : 'Discount amount'}
           autoFocus
           onSubmit={handleApply}
         />
+
+        {mode === 'percent' && (
+          <div className="flex items-baseline justify-between text-sm">
+            <span className="text-ink-muted">Discount</span>
+            <Money value={amount} symbol="Rs." emphasis="strong" />
+          </div>
+        )}
 
         <SelectField
           label="Reason"

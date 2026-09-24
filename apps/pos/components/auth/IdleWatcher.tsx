@@ -40,7 +40,11 @@ export function IdleWatcher({ idleLockSeconds }: IdleWatcherProps) {
   const lastTouch = useRef(0);
 
   useEffect(() => {
-    if (idleLockSeconds <= 0) return;
+    // ADR 0029 — with the idle lock off (0) there is no timer, but activity
+    // still refreshes the staff cookie below. Without that, the signed token's
+    // own upper bound (`STAFF_TOKEN_TTL_SECONDS`) would lock a busy till
+    // anyway, once, mid-shift, measured from the morning's PIN.
+    const locks = idleLockSeconds > 0;
 
     const lock = () => {
       void lockAction();
@@ -48,7 +52,7 @@ export function IdleWatcher({ idleLockSeconds }: IdleWatcherProps) {
 
     const restart = () => {
       if (timer.current !== null) clearTimeout(timer.current);
-      timer.current = setTimeout(lock, idleLockSeconds * 1000);
+      if (locks) timer.current = setTimeout(lock, idleLockSeconds * 1000);
 
       const now = Date.now();
       if (now - lastTouch.current >= TOUCH_THROTTLE_MS) {

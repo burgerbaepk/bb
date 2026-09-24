@@ -67,6 +67,7 @@ const OWNER_PERMISSIONS: readonly Permission[] = [
   'shift.close',
   'reports.read',
   'reports.export',
+  'audit.read',
   'settings.read',
   'settings.write',
   'settings.tax.write',
@@ -106,6 +107,7 @@ const WAITER_PERMISSIONS: readonly Permission[] = ['order.create', 'order.send',
 const AUDITOR_PERMISSIONS: readonly Permission[] = [
   'reports.read',
   'reports.export',
+  'audit.read',
   'settings.read',
 ];
 

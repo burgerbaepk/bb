@@ -70,6 +70,8 @@ export async function sendOwnerReport(
   subject: string,
   text: string,
   alsoTo: readonly string[] = [],
+  /** ADR 0029 — the designed body; `text` stays as the plain-text part. */
+  html?: string,
 ): Promise<boolean> {
   const client = resendClient();
   const from = process.env['RESEND_FROM_TRANSACTIONAL'];
@@ -86,6 +88,18 @@ export async function sendOwnerReport(
   ];
   if (to.length === 0) return false;
 
-  await client.emails.send({ from, to, subject, text });
+  const { error } = await client.emails.send({
+    from,
+    to,
+    subject,
+    text,
+    ...(html === undefined ? {} : { html }),
+  });
+  // Resend answers a rejected send (bad sender domain, quota) with `error`
+  // rather than throwing, so without this a refused email read as delivered.
+  if (error !== null) {
+    console.error('sendOwnerReport: Resend refused the email', error);
+    return false;
+  }
   return true;
 }

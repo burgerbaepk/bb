@@ -36,6 +36,8 @@ export const ROLES: readonly RoleSeed[] = [
     key: 'MANAGER',
     name: 'Manager',
     description: 'Menu, tables, discounts, refunds, voids, shift close, and all reports.',
+    // ADR 0030 — deliberately without `audit.read`: the activity log is the
+    // owner's view of what the manager does.
     // §14.1 lists what a manager may do and does not list settings, tax policy,
     // sensitive outlet settings or user management — those remain owner-only
     // clause calls out. `settings.read` is here because a manager who cannot
@@ -85,6 +87,6 @@ export const ROLES: readonly RoleSeed[] = [
     key: 'AUDITOR',
     name: 'Auditor',
     description: 'Read-only reports, tax exports, and the auditor access pack.',
-    permissions: ['reports.read', 'reports.export', 'settings.read'],
+    permissions: ['reports.read', 'reports.export', 'audit.read', 'settings.read'],
   },
 ];

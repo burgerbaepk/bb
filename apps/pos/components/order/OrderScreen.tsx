@@ -44,6 +44,7 @@ import { BillPreviewReceipt } from '@/components/receipt/BillPreviewReceipt';
 import { KitchenOrderTicketPrintPortal } from '@/components/receipt/KitchenOrderTicketPrintPortal';
 import { BillPreviewPrintPortal } from '@/components/receipt/BillPreviewPrintPortal';
 import {
+  changeOrderTypeAction,
   placeOrderAction,
   recordBillPrintAction,
   setOrderCustomerAction,
@@ -87,6 +88,12 @@ import {
  * without a new round added (M09b §3's own "read-only summary, not a
  * reconstructed cart" decision).
  */
+const ORDER_TYPE_LABEL: Record<OrderType, string> = {
+  DINE_IN: 'dine-in',
+  TAKE_AWAY: 'takeaway',
+  DELIVERY: 'delivery',
+};
+
 function deliveryChargeText(value: bigint): string {
   return `${value / 100n}.${(value % 100n).toString().padStart(2, '0')}`;
 }
@@ -749,6 +756,79 @@ export function OrderScreen({
     if (!result.ok) toast.show('error', result.error ?? 'Could not save the discount.');
   };
 
+  /**
+   * ADR 0028 — the order type is a tap, on a draft and on a booked order
+   * alike. A draft only changes local state. A booked order changes on the
+   * server at once (`changeOrderTypeAction`), because it may own a table: a
+   * dine-in order switched to takeaway has to give its table back now, not
+   * whenever the cashier next presses Save, and a takeaway switched to
+   * dine-in needs the server to choose a table under lock.
+   */
+  const handleOrderTypeChange = async (next: OrderType) => {
+    const current = table === null ? orderType : 'DINE_IN';
+    if (next === current) return;
+
+    const orderId = placedOrder?.id ?? realOrder?.id ?? null;
+    if (orderId === null) {
+      if (next === 'DINE_IN') {
+        setOrderType('DINE_IN');
+        if (table === null) setTable(automaticTable);
+        return;
+      }
+      setOrderType(next);
+      setTable(null);
+      return;
+    }
+
+    if (isOffline) {
+      // §8 — the table release cannot be done locally, and a type queued
+      // behind it would book a table nobody knows is taken.
+      toast.show('info', 'Reconnect to change the type of a booked order.');
+      return;
+    }
+
+    let result: Awaited<ReturnType<typeof changeOrderTypeAction>>;
+    try {
+      result = await changeOrderTypeAction({ orderId, orderType: next });
+    } catch {
+      toast.show('error', 'Could not change the order type. Please retry.');
+      return;
+    }
+    if (!result.ok) {
+      toast.show('error', result.error ?? 'Could not change the order type.');
+      return;
+    }
+
+    const nextTable =
+      result.tableId === null
+        ? null
+        : (tables.find((candidate) => candidate.id === result.tableId) ?? null);
+    setOrderType(next);
+    setTable(nextTable);
+    if (next !== 'DELIVERY') {
+      setDeliveryAddress('');
+      setDeliveryChargeInput(deliveryChargeText(0n));
+    }
+    setRealOrder((existing) =>
+      existing === null
+        ? null
+        : {
+            ...existing,
+            type: next,
+            tableId: result.tableId,
+            tableCode: nextTable?.code ?? null,
+            ...(next === 'DELIVERY' ? {} : { deliveryAddress: null, deliveryCharge: paisa(0n) }),
+          },
+    );
+    setOrdersQueueRevision((revision) => revision + 1);
+    toast.show(
+      'success',
+      nextTable === null
+        ? `Order changed to ${ORDER_TYPE_LABEL[next]}`
+        : `Order changed to dine-in at Table ${nextTable.code}`,
+    );
+  };
+
   const handleRemoveDiscount = async () => {
     setDiscount(paisa(0n));
     setDiscountReason(null);
@@ -1298,19 +1378,7 @@ export function OrderScreen({
         }}
         canDiscount={canDiscount}
         orderType={table === null ? orderType : 'DINE_IN'}
-        onOrderTypeChange={(next) => {
-          if (placedOrder !== null || realOrder !== null) {
-            toast.show('info', 'Start a new order to change the order type.');
-            return;
-          }
-          if (next === 'DINE_IN') {
-            setOrderType('DINE_IN');
-            if (table === null) setTable(automaticTable);
-            return;
-          }
-          setOrderType(next);
-          setTable(null);
-        }}
+        onOrderTypeChange={(next) => void handleOrderTypeChange(next)}
         onOpenOrders={() => setOrdersQueueOpen(true)}
         onVoid={handleVoidClick}
         canVoid={placedOrder !== null || lines.length > 0}

@@ -50,7 +50,7 @@ describe('the sales invoice', () => {
       />,
     );
     const text = container.textContent ?? '';
-    expect(text).toContain(`ORDER: ${MOCK_REFERENCE_ORDER.orderNo}`);
+    expect(text).toContain(`ORDER #${MOCK_REFERENCE_ORDER.orderNo}`);
     expect(text).toContain('OFFLINE RECEIPT');
     expect(text).not.toContain('SYNC');
     expect(text).not.toContain(MOCK_REFERENCE_INVOICE.localNo);
@@ -65,7 +65,9 @@ it('prints the delivery address and separate delivery charge on the invoice', ()
       invoice={{ ...MOCK_REFERENCE_INVOICE, deliveryCharge: MOCK_REFERENCE_INVOICE.posFee }}
     />,
   );
-  expect(screen.getByText('Delivery address: House 12, Lahore')).toBeInTheDocument();
+  // ADR 0028 — the address prints in its own boxed "Deliver to" block.
+  expect(screen.getByText('Deliver to')).toBeInTheDocument();
+  expect(screen.getByText('House 12, Lahore')).toBeInTheDocument();
   expect(screen.getByText('Delivery charges')).toBeInTheDocument();
 });
 

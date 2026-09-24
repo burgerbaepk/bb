@@ -72,6 +72,13 @@ export const PermissionSchema = z.enum([
   'shift.close',
   'reports.read',
   'reports.export',
+  /**
+   * ADR 0030 — the activity log (the R7 audit trail), apart from the reports.
+   * It is how an owner watches the people who run the till, the manager
+   * included, so it is not something a manager holds. OWNER has it through
+   * `*`; AUDITOR has it because PSTSA s.32(2) gives an inspector the records.
+   */
+  'audit.read',
   'expenses.write',
   'settings.read',
   'settings.write',

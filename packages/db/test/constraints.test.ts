@@ -290,7 +290,12 @@ suite('R1 — money survives the driver as bigint', () => {
         taxSnapshot: {},
       });
 
-      const [row] = await tx.select({ subtotal: invoices.subtotal }).from(invoices);
+      // Its own row: against a database that already holds real invoices, an
+      // unfiltered read returned somebody's lunch instead.
+      const [row] = await tx
+        .select({ subtotal: invoices.subtotal })
+        .from(invoices)
+        .where(eq(invoices.orderId, order!.id));
       expect(typeof row?.subtotal).toBe('bigint');
       // Had this gone through a float, it would read 9007199254740992.
       expect(row?.subtotal).toBe(huge);

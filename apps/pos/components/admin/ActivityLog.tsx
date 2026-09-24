@@ -21,10 +21,14 @@ import { formatDateTime } from '@/components/lib/format';
 const NOTABLE: Readonly<
   Record<string, { readonly tone: 'danger' | 'warn'; readonly label: string }>
 > = {
+  // ADR 0029 — the pair ADR 0027 was written against: a bill in the
+  // customer's hand, then the order made to disappear.
+  ORDER_VOIDED_AFTER_BILL_PRINTED: { tone: 'danger', label: 'voided after bill printed' },
+  ORDER_VOIDED_AFTER_BILL_VIEWED: { tone: 'danger', label: 'voided after bill shown' },
   ORDER_BILL_PRINTED: { tone: 'danger', label: 'bill printed' },
   ORDER_BILL_VIEWED: { tone: 'warn', label: 'bill shown' },
   ORDER_VOIDED: { tone: 'danger', label: 'order voided' },
-  ORDER_LINES_VOIDED: { tone: 'warn', label: 'lines voided' },
+  ORDER_LINE_VOIDED: { tone: 'warn', label: 'line voided' },
   ORDER_DISCOUNT_SET: { tone: 'warn', label: 'discount set' },
 };
 
@@ -52,7 +56,7 @@ export function ActivityLog({
     <>
       <PageHeading
         title="Activity log"
-        note="Every recorded action, newest first, with the staff member responsible. Bills printed and orders voided are highlighted — an order whose bill was printed and never finalized also appears on the exceptions report."
+        note="Every recorded action, newest first, with the staff member responsible. Bills printed and orders voided are highlighted, and an order voided after its bill was printed or shown is flagged in red. An order whose bill was printed and never finalized also appears on the exceptions report."
       />
 
       <form className="border-border bg-surface-raised mb-4 grid gap-3 rounded-base border p-4 md:grid-cols-[1fr_1fr_1fr_auto_auto_auto]">

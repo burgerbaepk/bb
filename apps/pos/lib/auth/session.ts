@@ -131,7 +131,8 @@ export async function currentTillIdentity(knownBinding?: Binding): Promise<TillI
     idleLockSeconds(),
     loadViewer(staff.claim.userId),
   ]);
-  if (idleFor > lockSeconds) return null;
+  // ADR 0029 — zero is "never re-lock on idle".
+  if (lockSeconds > 0 && idleFor > lockSeconds) return null;
   return viewer === null ? null : { viewer, binding };
 }
 

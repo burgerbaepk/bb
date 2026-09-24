@@ -1,8 +1,6 @@
-import { priceLines } from '@natech/domain';
 import type { BrandConfig } from '@natech/branding';
 import {
   OFFLINE_INVOICE_BANNER,
-  toDomainLines,
   type Invoice,
   type Order,
   type OutletConfig,
@@ -11,10 +9,17 @@ import {
   PAYMENT_METHOD_LABELS,
   formatBusinessDate,
   formatDateTime,
-  formatQty,
   formatRate,
 } from '@/components/lib/format';
-import { ReceiptFrame, ReceiptRow, ReceiptRule } from './ReceiptFrame';
+import {
+  ReceiptFrame,
+  ReceiptGrandTotal,
+  ReceiptItems,
+  ReceiptNote,
+  ReceiptOrderDetails,
+  ReceiptRow,
+  ReceiptTitle,
+} from './ReceiptFrame';
 import { OrderOnlineQr } from './OrderOnlineQr';
 import { ReceiptMoney } from './ReceiptMoney';
 
@@ -58,8 +63,6 @@ export function TaxInvoiceReceipt({
   operatorHeaderLines = [],
   paymentDetails,
 }: TaxInvoiceReceiptProps) {
-  const priced = priceLines(toDomainLines(order));
-
   return (
     <ReceiptFrame
       outlet={outlet}
@@ -69,20 +72,16 @@ export function TaxInvoiceReceipt({
       operatorHeaderLines={operatorHeaderLines}
       paymentDetails={paymentDetails}
     >
-      <ReceiptRule />
-
-      <div className="text-center">
-        <p className="text-base font-black tracking-[0.12em]">
-          {invoice.taxLines.length === 0 ? 'SALE RECEIPT' : 'TAX INVOICE'}
-        </p>
-        {showUrdu && invoice.taxLines.length !== 0 && (
-          <p lang="ur" dir="rtl">
-            ٹیکس انوائس
-          </p>
-        )}
-      </div>
-
-      <ReceiptRule />
+      <ReceiptTitle
+        title={invoice.taxLines.length === 0 ? 'SALE RECEIPT' : 'TAX INVOICE'}
+        subtitle={
+          showUrdu && invoice.taxLines.length !== 0 ? (
+            <span lang="ur" dir="rtl">
+              ٹیکس انوائس
+            </span>
+          ) : undefined
+        }
+      />
 
       {/* §5.8 — the allocated number, on its own line and at document weight.
           It is what the invoice is *called*: it identifies this sale in the
@@ -96,82 +95,33 @@ export function TaxInvoiceReceipt({
           condition — an invoice finalized offline has no `local_no` yet
           because the counter is server-side, so the document falls back to
           the order number and says so. */}
-      <div className="border-b border-dashed border-black pb-1 text-center">
-        <p className="text-[10px] tracking-[0.14em]">{offline ? 'ORDER NO.' : 'INVOICE NO.'}</p>
-        <p className="text-lg font-black tracking-wide">
+      <div className="text-center">
+        <p className="text-[10px] font-bold tracking-[0.18em]">
+          {offline ? 'ORDER NO.' : 'INVOICE NO.'}
+        </p>
+        <p className="text-2xl leading-none font-black tracking-wide">
           {offline ? order.orderNo : invoice.localNo}
         </p>
       </div>
-      <div className="flex justify-between border-b border-dashed border-black py-1 font-semibold">
+      <div className="mt-2 mb-2 flex justify-between text-[11px] font-semibold">
         <span>{formatDateTime(invoice.finalizedAt, outlet.timezone).toUpperCase()}</span>
-        <span>ORDER: {order.orderNo}</span>
-      </div>
-      <div className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-        <span>TYPE:</span>
-        <span className="text-end font-semibold">{order.type.replace('_', ' ')}</span>
-        <span>MODE:</span>
-        <span className="text-end font-semibold">
-          {invoice.payments.map((payment) => PAYMENT_METHOD_LABELS[payment.method]).join(' + ')}
-        </span>
-        {order.type === 'DINE_IN' && (
-          <>
-            <span className="text-base font-bold">TABLE:</span>
-            <span className="text-end text-xl font-black">{order.tableCode ?? '—'}</span>
-          </>
-        )}
+        <span>ORDER #{order.orderNo}</span>
       </div>
       {/* §5.8, defect C6 — the business date is stamped at finalize and labelled. */}
-      <div className="flex justify-between text-[10px]">
+      <div className="-mt-1 mb-2 flex justify-between text-[10px]">
         <span>Business date</span>
         <span>{formatBusinessDate(invoice.businessDate)}</span>
       </div>
-      <div className="mt-1 flex justify-between border-t border-dashed border-black pt-1 text-sm">
-        <span>NAME:</span>
-        <span className="font-semibold uppercase">{order.customerName ?? 'Walk-in Customer'}</span>
-      </div>
-      {order.customerPhone !== null && <p>Phone: {order.customerPhone}</p>}
-      {order.type === 'DELIVERY' && order.deliveryAddress && (
-        <p className="whitespace-pre-wrap break-words">Delivery address: {order.deliveryAddress}</p>
-      )}
 
-      <table className="mt-2 w-full table-fixed border-collapse text-start">
-        <thead>
-          <tr>
-            <th className="w-[47%] border border-black px-1 py-0.5">DESCRIPTION</th>
-            <th className="w-[9%] border border-black px-1 py-0.5 text-center">QTY</th>
-            <th className="w-[22%] border border-black px-1 py-0.5 text-end">RATE</th>
-            <th className="w-[22%] border border-black px-1 py-0.5 text-end">VALUE</th>
-          </tr>
-        </thead>
-        <tbody>
-          {priced
-            .filter((line) => line.line.isVoid !== true)
-            .map((line) => (
-              <tr key={line.line.id}>
-                <td className="border border-black px-1 py-1 font-semibold break-words">
-                  {line.line.name}
-                  {/* §15.1 — the item's own name, not the static banner below. */}
-                  {showUrdu && line.line.nameUr !== null && line.line.nameUr !== undefined && (
-                    <p className="font-normal" lang="ur" dir="rtl">
-                      {line.line.nameUr}
-                    </p>
-                  )}
-                </td>
-                <td className="border border-black px-1 py-1 text-center">
-                  {formatQty(line.line.qty)}
-                </td>
-                <td className="whitespace-nowrap border border-black px-1 py-1 text-end text-[11px]">
-                  <ReceiptMoney value={line.line.unitPrice} />
-                </td>
-                <td className="whitespace-nowrap border border-black px-1 py-1 text-end text-[11px]">
-                  <ReceiptMoney value={line.gross} />
-                </td>
-              </tr>
-            ))}
-        </tbody>
-      </table>
+      <ReceiptOrderDetails
+        order={order}
+        paymentLabel={invoice.payments
+          .map((payment) => PAYMENT_METHOD_LABELS[payment.method])
+          .join(' + ')}
+      />
+      <ReceiptItems order={order} showUrdu={showUrdu} />
 
-      <div className="mt-3 space-y-1 px-1 text-sm">
+      <div className="mt-3 space-y-1 px-0.5 text-[13px]">
         <ReceiptRow label="Subtotal" value={<ReceiptMoney value={invoice.subtotal} />} />
         {invoice.discountTotal !== 0n && (
           <ReceiptRow label="Discount" value={<ReceiptMoney value={invoice.discountTotal} />} />
@@ -213,18 +163,11 @@ export function TaxInvoiceReceipt({
         )}
       </div>
 
-      <div className="my-2 border-y-4 border-double border-black px-1 py-1 text-xl font-black">
-        <ReceiptRow
-          label="TOTAL:"
-          value={<ReceiptMoney value={invoice.grandTotal} symbol="RS." />}
-        />
-      </div>
+      <ReceiptGrandTotal value={invoice.grandTotal} />
 
       <OrderOnlineQr url={storefrontUrl} />
       {offline && <p className="text-center font-semibold">{OFFLINE_INVOICE_BANNER}</p>}
-      <div className="mt-3 border-y border-dashed border-black py-1 text-center text-sm font-bold italic">
-        THANK YOU! PLEASE VISIT AGAIN.
-      </div>
+      <ReceiptNote>Thank you! Please visit again.</ReceiptNote>
     </ReceiptFrame>
   );
 }

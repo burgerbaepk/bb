@@ -16,6 +16,12 @@ export type EscPosAlign = 'left' | 'center' | 'right';
 export interface EscPosTextLine {
   readonly text: string;
   readonly bold?: boolean | undefined;
+  /**
+   * Double height, normal width (`GS ! 0x01`) — ADR 0028, for the delivery
+   * address and the total. Width is left alone so the line keeps the paper's
+   * full column count and wraps where every other line does.
+   */
+  readonly tall?: boolean | undefined;
   readonly align?: EscPosAlign | undefined;
 }
 
@@ -80,6 +86,7 @@ export function buildEscPosBuffer(doc: EscPosDocument): Buffer {
 
   let currentAlign: EscPosAlign | null = null;
   let currentBold: boolean | null = null;
+  let currentTall = false;
 
   for (const line of doc.lines) {
     const align = line.align ?? 'left';
@@ -97,6 +104,11 @@ export function buildEscPosBuffer(doc: EscPosDocument): Buffer {
     if (bold !== currentBold) {
       chunks.push(Buffer.from([ESC, 0x45, bold ? 1 : 0]));
       currentBold = bold;
+    }
+    const tall = line.tall ?? false;
+    if (tall !== currentTall) {
+      chunks.push(Buffer.from([GS, 0x21, tall ? 0x01 : 0x00]));
+      currentTall = tall;
     }
     chunks.push(Buffer.from(`${line.text}\n`, 'ascii'));
   }

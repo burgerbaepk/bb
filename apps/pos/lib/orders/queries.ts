@@ -1,6 +1,7 @@
 import 'server-only';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import {
+  customers,
   dbRead,
   orderLineModifiers,
   orderLines,
@@ -74,8 +75,13 @@ export async function listTrayOrders(viewer: Viewer): Promise<readonly TrayOrder
       serviceChargeBpsOverride: orders.serviceChargeBpsOverride,
       serviceStartedAt: orders.serviceStartedAt,
       createdAt: orders.createdAt,
+      customerName: customers.name,
+      customerPhone: customers.phone,
     })
     .from(orders)
+    // ADR 0028 — the card used to print "Walk-in Customer" for every order,
+    // including a delivery the cashier had attached a named customer to.
+    .leftJoin(customers, eq(customers.id, orders.customerId))
     .where(workableOrder());
 
   if (orderRows.length === 0) return [];
@@ -221,7 +227,9 @@ export async function listTrayOrders(viewer: Viewer): Promise<readonly TrayOrder
       status: currentOrderStatus(order.status as PersistedOrderStatus),
       tableCode: table?.code ?? null,
       zoneName: table === null ? null : (zoneNameById.get(table.zoneId) ?? null),
-      customerName: null,
+      customerName: order.customerName,
+      customerPhone: order.customerPhone,
+      deliveryAddress: order.type === 'DELIVERY' ? order.deliveryAddress : null,
       guestCount: order.guestCount,
       waiterInitials: waiterName === null ? null : initialsOf(waiterName),
       itemCount: activeLines.length,

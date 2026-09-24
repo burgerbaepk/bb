@@ -104,6 +104,16 @@ export async function invoiceEscPosDocument(
     rule(),
   ];
 
+  // ADR 0028 — the rider reads this off the bag, so it prints near the top,
+  // bold and double height, rather than as a plain line among the totals.
+  if (order.type === 'DELIVERY' && order.deliveryAddress) {
+    lines.push({ text: 'DELIVER TO', bold: true });
+    lines.push({ text: order.deliveryAddress, bold: true, tall: true });
+    if (order.customerPhone !== null)
+      lines.push({ text: `Tel ${order.customerPhone}`, bold: true });
+    lines.push(rule());
+  }
+
   for (const line of activeLines(order)) {
     lines.push({ text: `${line.nameSnapshot}  x${formatQty(line.qty)}` });
     lines.push(...(await urduLine(line.nameUrSnapshot, receipt)));
@@ -118,15 +128,13 @@ export async function invoiceEscPosDocument(
       text: `Sales tax @ ${formatRate(taxLine.rateBps)} (${PAYMENT_METHOD_LABELS[taxLine.paymentMethodScope].toLowerCase()})  ${money(taxLine.amount)}`,
     });
   }
-  if (order.type === 'DELIVERY' && order.deliveryAddress)
-    lines.push({ text: `Delivery address: ${order.deliveryAddress}` });
   if (invoice.deliveryCharge !== undefined && invoice.deliveryCharge > 0n)
     lines.push({ text: `Delivery charges  ${money(invoice.deliveryCharge)}` });
   if (invoice.posFee !== 0n) lines.push({ text: `POS service fee  ${money(invoice.posFee)}` });
   if (invoice.serviceCharge !== 0n)
     lines.push({ text: `Service charge  ${money(invoice.serviceCharge)}` });
   lines.push(rule());
-  lines.push({ text: `TOTAL  ${money(invoice.grandTotal)}`, bold: true });
+  lines.push({ text: `TOTAL  ${money(invoice.grandTotal)}`, bold: true, tall: true });
   lines.push(rule());
 
   for (const text of visibleReceiptLines(receipt.footerLines ?? [], invoice.taxLines.length > 0))

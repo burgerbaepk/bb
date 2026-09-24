@@ -97,6 +97,14 @@ export const TrayOrderSchema = z.object({
   tableCode: z.string().nullable(),
   zoneName: z.string().nullable(),
   customerName: z.string().nullable(),
+  /**
+   * ADR 0028 — additive and optional, so the frozen shape (ADR 0008) still
+   * parses every payload written before it. A rider is dispatched from the
+   * booked-orders tray, and a delivery card without the address and phone
+   * sent the cashier back into the order to find out where it was going.
+   */
+  customerPhone: z.string().nullable().optional(),
+  deliveryAddress: z.string().nullable().optional(),
   guestCount: z.int().nonnegative().nullable(),
   waiterInitials: z.string().nullable(),
   itemCount: z.int().nonnegative(),

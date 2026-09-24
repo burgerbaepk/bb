@@ -38,6 +38,14 @@ describe('the §14.1 capability table', () => {
     expect(manager).toContain('invoice.refund');
   });
 
+  it('keeps the activity log from MANAGER — ADR 0030', () => {
+    // The activity log is how the owner watches the manager; the reports are not.
+    expect(grantsOf('MANAGER')).not.toContain('audit.read');
+    expect(grantsOf('MANAGER')).toContain('reports.read');
+    expect(grantsOf('OWNER')).toContain('audit.read');
+    expect(grantsOf('AUDITOR')).toContain('audit.read');
+  });
+
   it('gives CASHIER payment and finalize but not a refund', () => {
     const cashier = grantsOf('CASHIER');
     expect(cashier).toContain('payment.take');
@@ -51,8 +59,13 @@ describe('the §14.1 capability table', () => {
     expect(waiter).toEqual(['order.create', 'order.send']);
   });
 
-  it('gives AUDITOR read-only reporting and settings access', () => {
-    expect(grantsOf('AUDITOR')).toEqual(['reports.read', 'reports.export', 'settings.read']);
+  it('gives AUDITOR read-only reporting, audit trail and settings access', () => {
+    expect(grantsOf('AUDITOR')).toEqual([
+      'reports.read',
+      'reports.export',
+      'audit.read',
+      'settings.read',
+    ]);
   });
 
   it('gives every role a description for the roles screen', () => {

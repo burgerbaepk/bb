@@ -8,7 +8,8 @@ export default async function Page({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  await requirePermissionPage('reports.read');
+  // ADR 0030 — owners (and an auditor), not managers.
+  await requirePermissionPage('audit.read');
   const params = await searchParams;
   const text = (key: string): string =>
     typeof params[key] === 'string' ? (params[key] as string) : '';

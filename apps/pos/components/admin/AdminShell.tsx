@@ -93,7 +93,8 @@ const SECTIONS = [
       },
       { href: '/admin/invoices', label: 'Invoices', icon: ReceiptText, needs: 'reports.read' },
       // ADR 0027 — the R7 audit trail has existed since M02 with no reader.
-      { href: '/admin/activity', label: 'Activity log', icon: ScrollText, needs: 'reports.read' },
+      // ADR 0030 — owner-only; a manager is who it watches.
+      { href: '/admin/activity', label: 'Activity log', icon: ScrollText, needs: 'audit.read' },
       { href: '/admin/reports', label: 'Reports', icon: ChartNoAxesColumn, needs: 'reports.read' },
     ],
   },

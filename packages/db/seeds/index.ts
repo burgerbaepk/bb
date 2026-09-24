@@ -438,10 +438,9 @@ async function seedSettings(db: Db): Promise<void> {
     ['tax.policy', TAX_POLICY],
     ['storefront.sessionDays', 90],
     // §14.2 — how long a bound terminal stays unlocked between till actions
-    // before the PIN is required again. M07 reads this on every till action, and
-    // a missing row would have to mean something; a seeded five minutes is a
-    // better default than an implicit "never re-lock".
-    ['security.idleLockSeconds', 300],
+    // before the PIN is required again. ADR 0029 — zero, "never re-lock",
+    // stated explicitly rather than left to a missing row.
+    ['security.idleLockSeconds', 0],
     ['offline.maxQueuedOrders', 200],
     // §14.3 — the root layout resolves this into CSS custom properties on
     // every request (M08). `readBrandConfig()` falls back to the same neutral

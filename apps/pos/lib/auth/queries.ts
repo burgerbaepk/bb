@@ -238,8 +238,16 @@ export async function listRoles(): Promise<Role[]> {
   });
 }
 
-/** §14.2 — "Re-lock on a configurable idle timeout." This is the configuration. */
-export const DEFAULT_IDLE_LOCK_SECONDS = 300;
+/**
+ * §14.2 — "Re-lock on a configurable idle timeout." This is the configuration.
+ *
+ * ADR 0029 — zero means the till never re-locks on idle, and it is the
+ * default. The owner asked for it: at the pilot, a lock mid-rush cost more at
+ * the counter than it protected, because the till never leaves the cashier's
+ * sight. A deployment that wants the lock back sets a number of seconds in
+ * Settings; nothing else changes.
+ */
+export const DEFAULT_IDLE_LOCK_SECONDS = 0;
 
 export async function idleLockSeconds(): Promise<number> {
   const rows = await dbRead()
@@ -249,7 +257,7 @@ export async function idleLockSeconds(): Promise<number> {
     .limit(1);
 
   const value = rows[0]?.value;
-  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
     return DEFAULT_IDLE_LOCK_SECONDS;
   }
   return Math.floor(value);

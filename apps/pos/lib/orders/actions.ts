@@ -3,9 +3,10 @@
 import { randomUUID } from 'node:crypto';
 import { revalidatePath } from 'next/cache';
 import { after } from 'next/server';
-import { and, asc, eq, gte, inArray, isNull, ne, notInArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull, ne, notInArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import {
+  auditLog,
   customers,
   dbRead,
   dbWrite,
@@ -676,6 +677,59 @@ export async function voidOrderAction(input: VoidOrderInput): Promise<VoidOrderR
         },
       );
 
+      // ADR 0029 — a bill handed over and then the order voided is the exact
+      // shape of the theft ADR 0027 describes: quote the customer, take the
+      // cash, and make the sale disappear. ADR 0027's exceptions report stops
+      // at "never finalized" and deliberately leaves voided orders to
+      // `VOID_ORDER`, which cannot tell this void from an honest one. So the
+      // void itself is flagged here, in the same transaction, carrying the
+      // figure the customer was quoted and who quoted it. Printed outranks
+      // shown, the same ranking the exceptions report uses.
+      const bills = await tx
+        .select({
+          action: auditLog.action,
+          at: auditLog.at,
+          after: auditLog.after,
+          actorId: auditLog.actorId,
+        })
+        .from(auditLog)
+        .where(
+          and(
+            eq(auditLog.entity, 'orders'),
+            eq(auditLog.entityId, parsed.data.orderId),
+            inArray(auditLog.action, ['ORDER_BILL_PRINTED', 'ORDER_BILL_VIEWED']),
+          ),
+        )
+        .orderBy(desc(auditLog.at));
+      const bill = bills.find((row) => row.action === 'ORDER_BILL_PRINTED') ?? bills[0];
+      if (bill !== undefined) {
+        const billAfter =
+          typeof bill.after === 'object' && bill.after !== null
+            ? (bill.after as Record<string, unknown>)
+            : {};
+        const quoted = billAfter['grandTotal'];
+        const orderNo = billAfter['orderNo'];
+        await writeAudit(
+          tx,
+          { actorId: viewer.id, ip: context.ip ?? undefined, ua: context.ua ?? undefined },
+          {
+            entity: 'orders',
+            entityId: parsed.data.orderId,
+            action:
+              bill.action === 'ORDER_BILL_PRINTED'
+                ? 'ORDER_VOIDED_AFTER_BILL_PRINTED'
+                : 'ORDER_VOIDED_AFTER_BILL_VIEWED',
+            after: {
+              orderNo: typeof orderNo === 'number' ? orderNo : null,
+              grandTotal: typeof quoted === 'string' ? quoted : null,
+              billAt: bill.at.toISOString(),
+              billActorId: bill.actorId,
+              billCount: bills.length,
+            },
+          },
+        );
+      }
+
       // Free the table if this was its last open order — a table left in
       // ORDERED/SERVED/PAYING after its only order is voided otherwise keeps
       // offering Take Payment for an order that no longer exists, and the
@@ -1049,6 +1103,197 @@ export async function reassignOrderTableAction(
     revalidatePath('/orders');
   });
   return { ok: true, error: null };
+}
+
+/* ---------------------------------------------------- order type change */
+
+const ChangeOrderTypeInputSchema = z.object({
+  orderId: z.uuid(),
+  orderType: OrderTypeSchema,
+});
+
+export interface ChangeOrderTypeResult {
+  readonly ok: boolean;
+  readonly error: string | null;
+  /** The table the order now sits at — non-null only when it became dine-in. */
+  readonly tableId: string | null;
+}
+
+/**
+ * Change a booked order's type — ADR 0028, superseding ADR 0027's "a saved
+ * order retains its type; start a new order to change it".
+ *
+ * In practice a customer who booked a takeaway asks for it delivered, or sits
+ * down after all, and voiding and re-keying the whole order to say so left a
+ * void in the exceptions report for what was never an exception.
+ *
+ * Nothing priced is stored on the order that depends on its type — tax is
+ * computed once, at finalize (R9) — so the only state to keep honest is the
+ * table. Leaving dine-in closes the table session and frees the table if no
+ * other open order is on it, the same release `reassignOrderTableAction`
+ * performs; becoming dine-in picks the smallest free table that fits the
+ * party, the same choice `placeOrderAction` makes for a fresh order. Leaving
+ * delivery clears the address and charge, which would otherwise ride along
+ * unseen and reappear if the order were switched back.
+ */
+export async function changeOrderTypeAction(
+  input: z.infer<typeof ChangeOrderTypeInputSchema>,
+): Promise<ChangeOrderTypeResult> {
+  const parsed = ChangeOrderTypeInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: parsed.error.issues[0]?.message ?? 'Choose an order type.',
+      tableId: null,
+    };
+  }
+
+  let identity: TillIdentity;
+  try {
+    identity = await requireTillStaff();
+  } catch (error) {
+    if (error instanceof Locked || error instanceof NotSignedIn) {
+      return { ok: false, error: error.message, tableId: null };
+    }
+    throw error;
+  }
+  const { viewer } = identity;
+  try {
+    assertPermission(viewer, 'order.send');
+  } catch (error) {
+    if (error instanceof Forbidden) return { ok: false, error: error.message, tableId: null };
+    throw error;
+  }
+
+  const next = parsed.data.orderType;
+  const db = dbWrite();
+  const context = await requestContext();
+  let tableId: string | null = null;
+  try {
+    await db.transaction(async (tx) => {
+      const order = await tx
+        .select({
+          id: orders.id,
+          type: orders.type,
+          status: orders.status,
+          tableId: orders.tableId,
+          tableSessionId: orders.tableSessionId,
+          guestCount: orders.guestCount,
+        })
+        .from(orders)
+        .where(and(eq(orders.id, parsed.data.orderId), isNull(orders.deletedAt)))
+        .for('update')
+        .then((rows) => rows[0]);
+      if (order === undefined) throw new OrderActionRefusal('That order no longer exists.');
+      if (order.status === 'FINALIZED' || order.status === 'VOIDED') {
+        throw new OrderActionRefusal('This order is already closed.');
+      }
+      tableId = order.tableId;
+      if (order.type === next) return;
+
+      const now = new Date();
+      let tableSessionId: string | null = null;
+
+      if (next === 'DINE_IN') {
+        const destination = await tx
+          .select({ id: tables.id })
+          .from(tables)
+          .where(
+            and(
+              isNull(tables.deletedAt),
+              eq(tables.status, 'FREE'),
+              gte(tables.maxSeats, Math.max(1, order.guestCount ?? 1)),
+            ),
+          )
+          .orderBy(asc(tables.maxSeats), asc(tables.code))
+          .limit(1)
+          .for('update', { skipLocked: true })
+          .then((rows) => rows[0]);
+        if (destination === undefined) {
+          throw new OrderActionRefusal('No free table is available for this dine-in order.');
+        }
+        const [session] = await tx
+          .insert(tableSessions)
+          .values({
+            tableId: destination.id,
+            guestCount: order.guestCount ?? 0,
+            waiterId: viewer.id,
+            seatedBy: viewer.id,
+          })
+          .returning({ id: tableSessions.id });
+        if (session === undefined) throw new Error('Could not open the table.');
+        tableSessionId = session.id;
+        tableId = destination.id;
+        const destinationStatus: TableStatus = order.status === 'SERVED' ? 'SERVED' : 'ORDERED';
+        await tx
+          .update(tables)
+          .set({ status: destinationStatus, statusChangedAt: now, updatedAt: now })
+          .where(eq(tables.id, destination.id));
+      } else {
+        tableId = null;
+        if (order.tableSessionId !== null) {
+          await tx
+            .update(tableSessions)
+            .set({ closedAt: now, closedBy: viewer.id, updatedAt: now })
+            .where(eq(tableSessions.id, order.tableSessionId));
+        }
+        if (order.tableId !== null) {
+          const remaining = await tx
+            .select({ id: orders.id })
+            .from(orders)
+            .where(
+              and(
+                eq(orders.tableId, order.tableId),
+                isNull(orders.deletedAt),
+                notInArray(orders.status, ['FINALIZED', 'VOIDED']),
+                ne(orders.id, order.id),
+              ),
+            )
+            .limit(1);
+          if (remaining.length === 0) {
+            await tx
+              .update(tables)
+              .set({ status: 'FREE', statusChangedAt: now, updatedAt: now })
+              .where(eq(tables.id, order.tableId));
+          }
+        }
+      }
+
+      await tx
+        .update(orders)
+        .set({
+          type: next,
+          tableId,
+          tableSessionId,
+          ...(next === 'DELIVERY' ? {} : { deliveryAddress: null, deliveryCharge: 0n }),
+          updatedAt: now,
+        })
+        .where(eq(orders.id, order.id));
+
+      await writeAudit(
+        tx,
+        { actorId: viewer.id, ip: context.ip ?? undefined, ua: context.ua ?? undefined },
+        {
+          entity: 'orders',
+          entityId: order.id,
+          action: 'ORDER_TYPE_CHANGED',
+          before: { type: order.type, tableId: order.tableId },
+          after: { type: next, tableId },
+        },
+      );
+    });
+  } catch (error) {
+    if (error instanceof OrderActionRefusal)
+      return { ok: false, error: error.message, tableId: null };
+    throw error;
+  }
+
+  after(() => {
+    revalidatePath('/');
+    revalidatePath('/floor');
+    revalidatePath('/orders');
+  });
+  return { ok: true, error: null, tableId };
 }
 
 /* ------------------------------------------------------- order customer */

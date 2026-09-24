@@ -1,7 +1,18 @@
 'use client';
 
 import { useState } from 'react';
-import { Banknote, CreditCard, MapPin, ReceiptText, Trash2, UserRound } from 'lucide-react';
+import {
+  Banknote,
+  Bike,
+  CreditCard,
+  MapPin,
+  Phone,
+  ReceiptText,
+  ShoppingBag,
+  Trash2,
+  UserRound,
+  Utensils,
+} from 'lucide-react';
 import { Button, Duration, IconButton, Money, cn } from '@natech/ui';
 import type { TrayOrder } from '@natech/contracts';
 import { formatRate } from '@/components/lib/format';
@@ -28,85 +39,133 @@ export interface OrderCardProps {
   readonly onDelete: (order: TrayOrder) => void;
 }
 
+const TYPE_BADGE = {
+  DINE_IN: { label: 'Dine-in', icon: Utensils, className: 'bg-info-soft text-info' },
+  TAKE_AWAY: { label: 'Takeaway', icon: ShoppingBag, className: 'bg-ok-soft text-ok' },
+  DELIVERY: { label: 'Delivery', icon: Bike, className: 'bg-warn-soft text-warn' },
+} as const;
+
 export function OrderCard({ order, compact, onLoad, onDelete }: OrderCardProps) {
-  const [paymentMethod, setPaymentMethod] = useState<'CARD' | 'CASH'>('CARD');
+  // Cash first and selected: it is the till's own default (`OrderScreen`'s
+  // `paymentMethod` starts at CASH), so the figure the card quotes is the one
+  // the cashier will actually collect unless the customer asks to pay by card.
+  const [paymentMethod, setPaymentMethod] = useState<'CARD' | 'CASH'>('CASH');
   const breakdown =
     order.paymentBreakdowns.find((option) => option.method === paymentMethod) ?? null;
+  const badge = TYPE_BADGE[order.type];
+  const deliveryAddress = order.deliveryAddress?.trim() ?? '';
 
   return (
     <article
       className={cn(
-        'border-border bg-surface-raised group flex h-full flex-col overflow-hidden rounded-xl border shadow-sm transition-shadow hover:shadow-md',
+        'border-border bg-surface-raised group flex h-full flex-col overflow-hidden rounded-2xl border shadow-sm transition-shadow hover:shadow-md',
         compact && 'text-sm',
       )}
     >
-      <header className={cn('border-border bg-surface-sunken border-b', compact ? 'p-3' : 'p-4')}>
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-lg font-bold">
-                {order.tableCode === null ? `Order #${order.orderNo}` : `Table ${order.tableCode}`}
-              </h3>
-              <span className="bg-surface-raised border-border rounded-full border px-2 py-0.5 text-2xs font-semibold tracking-wide uppercase">
-                {order.status}
-              </span>
-            </div>
-            <p className="text-ink-muted mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-              <span>Order #{order.orderNo}</span>
-              <span>{order.type.replace('_', ' ')}</span>
-              {order.zoneName !== null && (
-                <span className="inline-flex items-center gap-1">
-                  <MapPin aria-hidden="true" className="size-3" /> {order.zoneName}
-                </span>
+      <header
+        className={cn('flex items-start justify-between gap-3', compact ? 'p-3' : 'p-4 pb-3')}
+      >
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className={cn('font-bold tracking-tight', compact ? 'text-lg' : 'text-xl')}>
+              {order.tableCode === null ? `Order #${order.orderNo}` : `Table ${order.tableCode}`}
+            </h3>
+            <span
+              className={cn(
+                'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-2xs font-semibold tracking-wide uppercase',
+                badge.className,
               )}
-            </p>
+            >
+              <badge.icon aria-hidden="true" className="size-3" />
+              {badge.label}
+            </span>
+            <span className="border-border text-ink-muted rounded-full border px-2 py-0.5 text-2xs font-semibold tracking-wide uppercase">
+              {order.status}
+            </span>
           </div>
-          <span className="shrink-0">
-            <Duration
-              seconds={order.elapsedSeconds}
-              thresholds={{ targetSeconds: 1800, overdueSeconds: 3600 }}
-              label="Time since the order opened"
-            />
-          </span>
+          <p className="text-ink-muted mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+            {order.tableCode !== null && <span>Order #{order.orderNo}</span>}
+            {order.zoneName !== null && (
+              <span className="inline-flex items-center gap-1">
+                <MapPin aria-hidden="true" className="size-3" /> {order.zoneName}
+              </span>
+            )}
+            {order.waiterInitials !== null && <span>Waiter {order.waiterInitials}</span>}
+            {order.guestCount !== null && <span>{order.guestCount} guests</span>}
+          </p>
         </div>
+        <span className="shrink-0">
+          <Duration
+            seconds={order.elapsedSeconds}
+            thresholds={{ targetSeconds: 1800, overdueSeconds: 3600 }}
+            label="Time since the order opened"
+          />
+        </span>
       </header>
 
-      <div className={cn('flex flex-1 flex-col gap-3', compact ? 'p-3' : 'p-4')}>
-        <div className="text-ink-muted flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-          <span className="inline-flex items-center gap-1.5">
-            <UserRound aria-hidden="true" className="size-4" />
+      <div className={cn('flex flex-1 flex-col gap-3', compact ? 'px-3 pb-3' : 'px-4 pb-4')}>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+          <span className="inline-flex items-center gap-1.5 font-medium">
+            <UserRound aria-hidden="true" className="text-ink-subtle size-4" />
             {order.customerName ?? 'Walk-in Customer'}
           </span>
-          {order.guestCount !== null && <span>{order.guestCount} guests</span>}
-          {order.waiterInitials !== null && <span>Waiter {order.waiterInitials}</span>}
+          {order.customerPhone != null && (
+            <span className="text-ink-muted inline-flex items-center gap-1.5 tabular-nums">
+              <Phone aria-hidden="true" className="size-4" />
+              {order.customerPhone}
+            </span>
+          )}
         </div>
 
-        {!compact && order.lineSummary.length > 0 && (
-          <div className="border-border rounded-lg border p-3">
-            <p className="mb-2 flex items-center gap-2 text-xs font-semibold tracking-wide uppercase">
-              <ReceiptText aria-hidden="true" className="size-4" /> {order.itemCount} items
+        {/* ADR 0028 — the rider's destination, at reading weight. The card is
+            where a delivery is dispatched from, so the address is the thing
+            the cashier is looking for, not a detail behind "Load order". */}
+        {deliveryAddress !== '' && (
+          <div className="border-warn/40 bg-warn-soft rounded-xl border p-3">
+            <p className="text-warn mb-1 flex items-center gap-1.5 text-2xs font-bold tracking-wider uppercase">
+              <MapPin aria-hidden="true" className="size-3.5" /> Deliver to
             </p>
-            <p className="text-ink-muted line-clamp-2 text-sm leading-relaxed">
-              {order.lineSummary.slice(0, 4).join(' · ')}
-              {order.lineSummary.length > 4 && (
-                <span className="text-ink-subtle"> +{order.lineSummary.length - 4} more</span>
+            <p
+              className={cn(
+                'text-ink font-semibold leading-snug break-words whitespace-pre-wrap',
+                compact ? 'text-sm' : 'text-base',
               )}
+            >
+              {deliveryAddress}
             </p>
           </div>
         )}
 
-        <section
-          className="border-border bg-surface-sunken rounded-lg border p-3"
-          aria-label="Payment breakdown"
-        >
+        {!compact && order.lineSummary.length > 0 && (
+          <div className="border-border rounded-xl border p-3">
+            <p className="text-ink-muted mb-2 flex items-center gap-2 text-2xs font-bold tracking-wider uppercase">
+              <ReceiptText aria-hidden="true" className="size-3.5" /> {order.itemCount}{' '}
+              {order.itemCount === 1 ? 'item' : 'items'}
+            </p>
+            <ul className="space-y-0.5 text-sm">
+              {order.lineSummary.slice(0, 4).map((line, index) => (
+                <li key={`${line}-${index}`} className="truncate">
+                  {line}
+                </li>
+              ))}
+            </ul>
+            {order.lineSummary.length > 4 && (
+              <p className="text-ink-subtle mt-1 text-xs">+{order.lineSummary.length - 4} more</p>
+            )}
+          </div>
+        )}
+
+        <section className="bg-surface-sunken rounded-xl p-3" aria-label="Payment breakdown">
           <div className="mb-3 flex items-center justify-between gap-3">
-            <h4 className="text-sm font-semibold">Payment breakdown</h4>
+            <h4 className="text-ink-muted text-2xs font-bold tracking-wider uppercase">
+              Payment breakdown
+            </h4>
             <div
               className="border-border bg-surface-raised grid grid-cols-2 rounded-lg border p-0.5"
               role="group"
               aria-label="Payment method"
             >
-              {(['CARD', 'CASH'] as const).map((method) => {
+              {(['CASH', 'CARD'] as const).map((method) => {
                 const Icon = method === 'CARD' ? CreditCard : Banknote;
                 return (
                   <button
@@ -135,7 +194,9 @@ export function OrderCard({ order, compact, onLoad, onDelete }: OrderCardProps) 
               {breakdown.discountTotal !== 0n && (
                 <MoneyRow label="Discount" value={-breakdown.discountTotal} />
               )}
-              <MoneyRow label="Taxable subtotal" value={breakdown.taxableBase} />
+              {breakdown.taxableBase !== order.subtotalExTax && (
+                <MoneyRow label="Taxable subtotal" value={breakdown.taxableBase} />
+              )}
               {breakdown.taxRatesBps.length !== 0 && (
                 <MoneyRow
                   label={`Sales tax @ ${breakdown.taxRatesBps.map(formatRate).join(' + ')}`}
@@ -154,9 +215,9 @@ export function OrderCard({ order, compact, onLoad, onDelete }: OrderCardProps) 
               {breakdown.roundingAdj !== 0n && (
                 <MoneyRow label="Rounding" value={breakdown.roundingAdj} />
               )}
-              <div className="border-border mt-2 flex items-end justify-between gap-3 border-t pt-2">
+              <div className="border-border mt-2 flex items-center justify-between gap-3 border-t pt-2">
                 <dt className="font-semibold">Amount due</dt>
-                <dd>
+                <dd className="text-xl font-bold tabular-nums">
                   <Money value={breakdown.grandTotal} symbol="Rs." emphasis="strong" />
                 </dd>
               </div>

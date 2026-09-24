@@ -94,15 +94,40 @@ describe('a booked-order card', () => {
     const paymentMethods = within(firstCard as HTMLElement).getByRole('group', {
       name: 'Payment method',
     });
-    expect(within(paymentMethods).getByRole('button', { name: 'Card' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
-    await user.click(within(paymentMethods).getByRole('button', { name: 'Cash' }));
+    // Cash is the till's default, so the card quotes the cash total first.
     expect(within(paymentMethods).getByRole('button', { name: 'Cash' })).toHaveAttribute(
       'aria-pressed',
       'true',
     );
+    await user.click(within(paymentMethods).getByRole('button', { name: 'Card' }));
+    expect(within(paymentMethods).getByRole('button', { name: 'Card' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  });
+
+  it('shows the delivery address and phone on a delivery card (ADR 0028)', () => {
+    const [first] = MOCK_TRAY_ORDERS;
+    if (first === undefined) throw new Error('No mock tray order.');
+    render(
+      <ToastProvider>
+        <ActiveOrdersTray
+          orders={[
+            {
+              ...first,
+              type: 'DELIVERY',
+              tableCode: null,
+              customerPhone: '555-0100',
+              deliveryAddress: 'House 12, Block B, Satellite Town',
+            },
+          ]}
+          zones={[]}
+        />
+      </ToastProvider>,
+    );
+    expect(screen.getByText('Deliver to')).toBeInTheDocument();
+    expect(screen.getByText('House 12, Block B, Satellite Town')).toBeInTheDocument();
+    expect(screen.getByText('555-0100')).toBeInTheDocument();
   });
 
   it('offers exactly two actions, Load order and Delete — no payment actions here by design (2026-08-27)', () => {
