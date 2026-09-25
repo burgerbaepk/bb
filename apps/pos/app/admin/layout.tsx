@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { ToastProvider } from '@natech/ui';
 import { AdminShell } from '@/components/admin/AdminShell';
+import { canUseAssistant } from '@/lib/assistant/access';
 import { requireOperator } from '@/lib/auth/session';
 
 /**
@@ -30,6 +31,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         viewerName={operator.displayName}
         viewerRole={operator.role}
         permissions={operator.permissions}
+        assistant={canUseAssistant(operator.role)}
       >
         {children}
       </AdminShell>

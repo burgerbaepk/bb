@@ -68,3 +68,12 @@ vi.mock('@/lib/webOrders/actions', () => ({
 vi.mock('@/lib/settings/actions', () => ({
   saveSettingAction: vi.fn(async () => ({ ok: true, error: null })),
 }));
+
+/**
+ * ADR 0031 — the admin shell renders the assistant panel, which imports its
+ * server action. Same reasoning as above; `lib/assistant/serialise.test.ts`
+ * covers the money rendering and the role gate.
+ */
+vi.mock('@/lib/assistant/actions', () => ({
+  askAssistantAction: vi.fn(async () => ({ ok: true, text: '' })),
+}));

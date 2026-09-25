@@ -12,7 +12,12 @@ beforeEach(() => {
 
 function renderShell(grants: Parameters<typeof expandPermissions>[0] = ['*']) {
   render(
-    <AdminShell viewerName="Owner" viewerRole="OWNER" permissions={expandPermissions(grants)}>
+    <AdminShell
+      viewerName="Owner"
+      viewerRole="OWNER"
+      permissions={expandPermissions(grants)}
+      assistant={false}
+    >
       <div>Page content</div>
     </AdminShell>,
   );

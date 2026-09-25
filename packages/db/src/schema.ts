@@ -99,6 +99,39 @@ export const demandSheetStatusEnum = pgEnum('demand_sheet_status', [
   'CANCELLED',
 ]);
 
+/**
+ * ADR 0032 — one day in the attendance book. No `HALF_DAY`, no `LATE`: each is
+ * a pay rule dressed as a status, and payroll is excluded by §1.
+ */
+export const attendanceStatusEnum = pgEnum('attendance_status', [
+  'PRESENT',
+  'ABSENT',
+  'LEAVE',
+  'OFF',
+]);
+
+/**
+ * ADR 0033 — a staff advance entry. Money to the employee, or money back.
+ * The balance is the difference and is never stored.
+ */
+export const staffAdvanceKindEnum = pgEnum('staff_advance_kind', ['ADVANCE', 'RECOVERY']);
+/** ADR 0033 — how a recovery came back. Null on an advance. */
+export const staffAdvanceMethodEnum = pgEnum('staff_advance_method', [
+  'SALARY_DEDUCTION',
+  'CASH_RETURN',
+]);
+
+/**
+ * ADR 0034 — a stock movement. In, out to the kitchen, out to the bin, or a
+ * physical count. On-hand is the sum of the deltas and is never stored.
+ */
+export const stockMovementKindEnum = pgEnum('stock_movement_kind', [
+  'RECEIVED',
+  'ISSUED',
+  'WASTED',
+  'COUNTED',
+]);
+
 /** §7.8 */
 /* ------------------------------------------------------------- 5.1 outlet */
 
@@ -935,6 +968,9 @@ export const demandSheetLines = pgTable(
  * crosses into the purchasing module the plan excludes; do not take it without
  * a new ADR.
  *
+ * Since M28 (ADR 0034) this is also the stock item list. It still gains no
+ * stock column: on-hand is the sum of `stock_movements.delta`, never a cell here.
+ *
  * The rows live in `packages/db/seeds/demand-items.ts` because they are client
  * data, like the menu (ADR 0012) and unlike anything in `apps/` (R12).
  */
@@ -955,6 +991,164 @@ export const demandItems = pgTable(
     sortOrder: integer('sort_order').notNull().default(0),
   },
   (t) => [index('demand_items_category_idx').on(t.category, t.sortOrder)],
+);
+
+/* --------------------------------------------------------- people (M26) */
+
+/**
+ * The staff register — ADR 0032, docs/runfiles/M26-attendance.md.
+ *
+ * Everyone who works in the restaurant, login or not. Deliberately not `users`:
+ * the cooks and riders have no email, and a dormant credential per cook is a
+ * dozen accounts nobody would notice being used. A person who also runs the
+ * till appears in both tables — one is a credential, the other is a person.
+ *
+ * Owner-only to write (`staff.write`). M27 pays advances against this list,
+ * and the ghost-employee fraud needs the same hand to create the person and
+ * to pay them; keeping the list with the owner splits the two.
+ *
+ * No pay column of any kind. A `daily_rate` here is the first line of the
+ * payroll module §1 excludes; read ADR 0032 before adding one.
+ */
+export const employees = pgTable('employees', {
+  ...baseColumns,
+  name: text('name').notNull(),
+  /** Free text — cook, rider, cashier. This client's titles, not an enum. */
+  jobTitle: text('job_title'),
+  phone: text('phone'),
+  /** Off the blank register when false; past days they were marked still show. */
+  isActive: boolean('is_active').notNull().default(true),
+});
+
+/**
+ * One person, one business date — ADR 0032.
+ *
+ * The paper register in the database: a status, and for a present day
+ * optionally the wall-clock times. `time`, not `timestamptz`, because the book
+ * says "16:00", not an instant; a time out earlier than the time in is the
+ * next morning, which is every closing shift here. See
+ * `apps/pos/lib/attendance/register.ts` for the wrap (R13).
+ */
+export const attendance = pgTable(
+  'attendance',
+  {
+    ...baseColumns,
+    employeeId: uuid('employee_id')
+      .notNull()
+      .references(() => employees.id),
+    businessDate: date('business_date').notNull(),
+    status: attendanceStatusEnum('status').notNull(),
+    timeIn: time('time_in'),
+    timeOut: time('time_out'),
+    note: text('note'),
+    recordedBy: uuid('recorded_by').references(() => users.id),
+  },
+  (t) => [
+    // At most one row per person per day. Two managers saving the same day at
+    // once get a refusal from the second insert rather than a duplicate.
+    uniqueIndex('attendance_employee_date_idx')
+      .on(t.employeeId, t.businessDate)
+      .where(sql`${t.deletedAt} is null`),
+    index('attendance_business_date_idx').on(t.businessDate),
+  ],
+);
+
+/**
+ * The staff advance book — ADR 0033, docs/runfiles/M27-staff-advances.md.
+ *
+ * One row per movement of money between the restaurant and an employee. The
+ * outstanding balance is `Σ ADVANCE − Σ RECOVERY`, derived on read and never
+ * stored: a stored balance is a second copy of the truth, and the two disagree
+ * the first time a write fails halfway.
+ *
+ * **Not an expense.** An advance is money the restaurant expects back; writing
+ * it to `expenses` would count it again when the full salary is paid.
+ *
+ * **Not payroll.** No salary, rate or schedule — a `SALARY_DEDUCTION` records
+ * that a deduction happened, not how the salary was worked out. Read ADR 0033
+ * before adding a column.
+ *
+ * No edit, no delete: a wrong entry is corrected by a counter-entry, as R5
+ * treats the invoice. An advance whose `PAY_OUT` sits in a closed shift cannot
+ * be deleted without unbalancing a drawer that has already been counted.
+ */
+export const staffAdvances = pgTable(
+  'staff_advances',
+  {
+    ...baseColumns,
+    employeeId: uuid('employee_id')
+      .notNull()
+      .references(() => employees.id),
+    kind: staffAdvanceKindEnum('kind').notNull(),
+    method: staffAdvanceMethodEnum('method'),
+    /** Positive paisa (R1). The kind carries the direction, not the sign. */
+    amount: paisa('amount').notNull(),
+    occurredOn: date('occurred_on').notNull(),
+    /**
+     * The till movement this entry caused, if the cash went through the
+     * drawer. Deliberately no `from_till` flag beside it: a flag and a link
+     * can disagree, and the link cannot.
+     */
+    cashMovementId: uuid('cash_movement_id').references(() => cashMovements.id),
+    note: text('note'),
+    recordedBy: uuid('recorded_by').references(() => users.id),
+  },
+  (t) => [
+    index('staff_advances_employee_idx').on(t.employeeId),
+    index('staff_advances_occurred_on_idx').on(t.occurredOn),
+    check('staff_advances_amount_positive', sql`${t.amount} > 0`),
+    // A recovery says how it came back; an advance has nothing to say.
+    check(
+      'staff_advances_method_matches_kind',
+      sql`(${t.kind} = 'ADVANCE' and ${t.method} is null) or (${t.kind} = 'RECOVERY' and ${t.method} is not null)`,
+    ),
+  ],
+);
+
+/**
+ * The stock ledger — ADR 0034, docs/runfiles/M28-stock-ledger.md.
+ *
+ * One row per movement of one catalogue item. On-hand is `Σ delta` for the
+ * item, derived on read: a stored on-hand is a cell that gets overwritten, and
+ * the whole point of a count is to see how far the book and the shelf drifted.
+ *
+ * `qty` is what the person entered — the amount received, issued or wasted, or
+ * for a count the figure found on the shelf. `delta` is the change the row
+ * makes to the book; for a count it is counted − book, computed under lock in
+ * the action, so the variance stays on record.
+ *
+ * **No money, and no link to a demand sheet or an expense.** Costing is where
+ * recipe costing starts; joining a receipt to what was ordered and what was
+ * paid is the three-way match ADR 0026 refused. Read ADR 0034 before adding a
+ * column.
+ */
+export const stockMovements = pgTable(
+  'stock_movements',
+  {
+    ...baseColumns,
+    itemId: uuid('item_id')
+      .notNull()
+      .references(() => demandItems.id),
+    kind: stockMovementKindEnum('kind').notNull(),
+    /** Numeric, not float — read through `Qty`, like every quantity here. */
+    qty: numeric('qty', { precision: 10, scale: 3 }).notNull(),
+    delta: numeric('delta', { precision: 10, scale: 3 }).notNull(),
+    occurredOn: date('occurred_on').notNull(),
+    /** Required on a waste — the reason is the only useful thing about one. */
+    note: text('note'),
+    recordedBy: uuid('recorded_by').references(() => users.id),
+  },
+  (t) => [
+    index('stock_movements_item_idx').on(t.itemId),
+    index('stock_movements_occurred_on_idx').on(t.occurredOn),
+    // The sign belongs to the kind. A receipt that lowers the book, or an issue
+    // that raises it, is a bug somewhere upstream and is refused here.
+    check(
+      'stock_movements_delta_matches_kind',
+      sql`(${t.kind} = 'RECEIVED' and ${t.qty} > 0 and ${t.delta} = ${t.qty}) or (${t.kind} in ('ISSUED', 'WASTED') and ${t.qty} > 0 and ${t.delta} = -${t.qty}) or (${t.kind} = 'COUNTED' and ${t.qty} >= 0)`,
+    ),
+    check('stock_movements_waste_has_reason', sql`${t.kind} <> 'WASTED' or ${t.note} is not null`),
+  ],
 );
 
 /* ------------------------------------------------ 5.10 tax and settings */

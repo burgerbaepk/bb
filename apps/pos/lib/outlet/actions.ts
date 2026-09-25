@@ -73,7 +73,9 @@ const OutletInput = z.object({
     .string()
     .trim()
     .refine(
-      (value) => value === '' || (Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) <= 5),
+      (value) =>
+        value === '' ||
+        (Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) <= 5),
       'Google rating must be between 0 and 5.',
     )
     .transform((value) => (value === '' ? null : value)),

@@ -198,7 +198,12 @@ describe('the sign-in form — §14.2 terminal binding', () => {
 describe('the back office nav — §14.1', () => {
   const shellFor = (permissions: readonly Permission[]) =>
     render(
-      <AdminShell viewerName="Aisha" viewerRole="AUDITOR" permissions={permissions}>
+      <AdminShell
+        viewerName="Aisha"
+        viewerRole="AUDITOR"
+        permissions={permissions}
+        assistant={false}
+      >
         <div />
       </AdminShell>,
     );

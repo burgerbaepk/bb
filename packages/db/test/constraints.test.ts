@@ -2,7 +2,18 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
 import { closeDb, dbWrite } from '../src/client';
 import { allocateLocalNo } from '../src/counters';
-import { invoiceCounter, invoices, orders, tables, zones } from '../src/schema';
+import {
+  attendance,
+  demandItems,
+  employees,
+  invoiceCounter,
+  invoices,
+  orders,
+  staffAdvances,
+  stockMovements,
+  tables,
+  zones,
+} from '../src/schema';
 
 /**
  * M02 gate — the constraints, exercised against a real database.
@@ -299,6 +310,127 @@ suite('R1 — money survives the driver as bigint', () => {
       expect(typeof row?.subtotal).toBe('bigint');
       // Had this gone through a float, it would read 9007199254740992.
       expect(row?.subtotal).toBe(huge);
+    });
+  });
+});
+
+/** A throwaway employee for the M26/M27 suites, inside the caller's rollback. */
+async function makeEmployee(tx: Tx): Promise<string> {
+  const [row] = await tx
+    .insert(employees)
+    .values({ name: unique('Test person') })
+    .returning({ id: employees.id });
+  if (row === undefined) throw new Error('no employee row');
+  return row.id;
+}
+
+suite('M26 — one attendance row per person per day (ADR 0032)', () => {
+  it('refuses a second live row for the same day, and allows one after a clear', async () => {
+    await inRollback(async (tx) => {
+      const employeeId = await makeEmployee(tx);
+      const day = { employeeId, businessDate: '2026-09-25', status: 'PRESENT' as const };
+      const [first] = await tx.insert(attendance).values(day).returning({ id: attendance.id });
+      const error = await rejected(tx, (sp) => sp.insert(attendance).values(day));
+      expect(error).toMatch(/attendance_employee_date_idx|duplicate key/);
+
+      // Clearing a status soft-deletes the row (ADR 0032); the day is then free.
+      if (first === undefined) throw new Error('no attendance row');
+      await tx.update(attendance).set({ deletedAt: new Date() }).where(eq(attendance.id, first.id));
+      await tx.insert(attendance).values({ ...day, status: 'ABSENT' });
+    });
+  });
+
+  it('keeps an overnight time out as written', async () => {
+    await inRollback(async (tx) => {
+      const employeeId = await makeEmployee(tx);
+      const [row] = await tx
+        .insert(attendance)
+        .values({
+          employeeId,
+          businessDate: '2026-09-25',
+          status: 'PRESENT',
+          timeIn: '16:00',
+          timeOut: '01:30',
+        })
+        .returning({ timeIn: attendance.timeIn, timeOut: attendance.timeOut });
+      // `time` comes back with seconds; `normaliseTime` in the app drops them.
+      expect(row).toEqual({ timeIn: '16:00:00', timeOut: '01:30:00' });
+    });
+  });
+});
+
+suite('M27 — staff_advances CHECKs (ADR 0033)', () => {
+  it('refuses a zero amount and a method on the wrong kind', async () => {
+    await inRollback(async (tx) => {
+      const employeeId = await makeEmployee(tx);
+      const base = { employeeId, occurredOn: '2026-09-25' };
+      await tx.insert(staffAdvances).values({ ...base, kind: 'ADVANCE', amount: 500000n });
+      await tx
+        .insert(staffAdvances)
+        .values({ ...base, kind: 'RECOVERY', method: 'CASH_RETURN', amount: 100000n });
+
+      expect(
+        await rejected(tx, (sp) =>
+          sp.insert(staffAdvances).values({ ...base, kind: 'ADVANCE', amount: 0n }),
+        ),
+      ).toMatch(/staff_advances_amount_positive/);
+      expect(
+        await rejected(tx, (sp) =>
+          sp
+            .insert(staffAdvances)
+            .values({ ...base, kind: 'ADVANCE', method: 'CASH_RETURN', amount: 1n }),
+        ),
+      ).toMatch(/staff_advances_method_matches_kind/);
+      expect(
+        await rejected(tx, (sp) =>
+          sp.insert(staffAdvances).values({ ...base, kind: 'RECOVERY', amount: 1n }),
+        ),
+      ).toMatch(/staff_advances_method_matches_kind/);
+    });
+  });
+});
+
+suite('M28 — stock_movements CHECKs and the on-hand sum (ADR 0034)', () => {
+  it('holds the sign to the kind, demands a reason for waste, and sums exactly', async () => {
+    await inRollback(async (tx) => {
+      const [item] = await tx
+        .insert(demandItems)
+        .values({ name: unique('Test item'), category: 'Kitchen', defaultUnit: 'kg' })
+        .returning({ id: demandItems.id });
+      if (item === undefined) throw new Error('no item row');
+      const base = { itemId: item.id, occurredOn: '2026-09-25' };
+
+      await tx.insert(stockMovements).values({ ...base, kind: 'RECEIVED', qty: '20', delta: '20' });
+      await tx
+        .insert(stockMovements)
+        .values({ ...base, kind: 'ISSUED', qty: '0.1', delta: '-0.1' });
+      await tx
+        .insert(stockMovements)
+        .values({ ...base, kind: 'COUNTED', qty: '19.5', delta: '-0.4' });
+
+      expect(
+        await rejected(tx, (sp) =>
+          sp.insert(stockMovements).values({ ...base, kind: 'RECEIVED', qty: '5', delta: '-5' }),
+        ),
+      ).toMatch(/stock_movements_delta_matches_kind/);
+      expect(
+        await rejected(tx, (sp) =>
+          sp.insert(stockMovements).values({ ...base, kind: 'ISSUED', qty: '5', delta: '5' }),
+        ),
+      ).toMatch(/stock_movements_delta_matches_kind/);
+      expect(
+        await rejected(tx, (sp) =>
+          sp.insert(stockMovements).values({ ...base, kind: 'WASTED', qty: '1', delta: '-1' }),
+        ),
+      ).toMatch(/stock_movements_waste_has_reason/);
+
+      // The exact expression `readStock` and `readBooks` use. A raw aggregate
+      // arrives as a driver string; it must keep three decimals for `parseQty`.
+      const [row] = await tx
+        .select({ total: sql<string>`sum(${stockMovements.delta})` })
+        .from(stockMovements)
+        .where(eq(stockMovements.itemId, item.id));
+      expect(row?.total).toBe('19.500');
     });
   });
 });

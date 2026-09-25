@@ -141,7 +141,12 @@ export async function recordCashMovementAction(
       const rows = await tx
         .select({ id: shifts.id, openedBy: shifts.openedBy, status: shifts.status })
         .from(shifts)
-        .where(eq(shifts.id, parsed.data.shiftId));
+        .where(eq(shifts.id, parsed.data.shiftId))
+        // The same lock `closeShiftAction` takes. Without it this read sees
+        // OPEN while a close is mid-transaction, and the movement commits
+        // after the drawer's expected cash was computed — a counted drawer
+        // then holds a movement its variance never saw. Found in M27.
+        .for('update');
       const shift = rows[0];
       if (shift === undefined) throw new ShiftActionRefusal('That shift no longer exists.');
       if (shift.status !== 'OPEN') throw new ShiftActionRefusal('This shift is already closed.');

@@ -5,6 +5,10 @@ import { usePathname } from 'next/navigation';
 import {
   ChartNoAxesColumn,
   ClipboardList,
+  CalendarCheck,
+  HandCoins,
+  Package,
+  IdCard,
   House,
   ArrowLeft,
   LayoutGrid,
@@ -24,6 +28,7 @@ import { Button, IconButton, cn } from '@natech/ui';
 import type { ReactNode } from 'react';
 import type { Permission } from '@natech/contracts';
 import { signOutAction } from '@/lib/auth/actions/session';
+import { AssistantPanel } from './AssistantPanel';
 
 /**
  * The back office chrome — BUILD-PLAN.md §14.1, §18 M05.
@@ -55,6 +60,22 @@ const SECTIONS = [
       },
       { href: '/admin/floor', label: 'Floor plan', icon: LayoutGrid, needs: 'floor.write' },
       { href: '/admin/table-qr', label: 'Table QR codes', icon: QrCode, needs: 'floor.write' },
+    ],
+  },
+  {
+    // ADR 0032 — the attendance book is the manager's; the register of people
+    // it is kept against is the owner's, so the one who marks cannot invent.
+    heading: 'People',
+    items: [
+      {
+        href: '/admin/attendance',
+        label: 'Attendance',
+        icon: CalendarCheck,
+        needs: 'reports.read',
+      },
+      // ADR 0033 — the advance book. Not under Expenses: an advance is owed back.
+      { href: '/admin/advances', label: 'Advances', icon: HandCoins, needs: 'reports.read' },
+      { href: '/admin/employees', label: 'Employees', icon: IdCard, needs: 'staff.write' },
     ],
   },
   {
@@ -91,6 +112,8 @@ const SECTIONS = [
         icon: ClipboardList,
         needs: 'reports.read',
       },
+      // ADR 0034 — beside Demand sheets: the same item list, a different question.
+      { href: '/admin/stock', label: 'Stock', icon: Package, needs: 'reports.read' },
       { href: '/admin/invoices', label: 'Invoices', icon: ReceiptText, needs: 'reports.read' },
       // ADR 0027 — the R7 audit trail has existed since M02 with no reader.
       // ADR 0030 — owner-only; a manager is who it watches.
@@ -108,10 +131,18 @@ export interface AdminShellProps {
   readonly viewerRole: string;
   /** §14.1 — what this account actually holds. Hiding a link is cosmetic. */
   readonly permissions: readonly Permission[];
+  /** ADR 0031 — owner and manager only. The action checks again. */
+  readonly assistant: boolean;
   readonly children: ReactNode;
 }
 
-export function AdminShell({ viewerName, viewerRole, permissions, children }: AdminShellProps) {
+export function AdminShell({
+  viewerName,
+  viewerRole,
+  permissions,
+  assistant,
+  children,
+}: AdminShellProps) {
   const pathname = usePathname();
   const held = new Set<Permission>(permissions);
 
@@ -224,6 +255,8 @@ export function AdminShell({ viewerName, viewerRole, permissions, children }: Ad
 
         <main className="min-w-0 flex-1 p-4 lg:p-6">{children}</main>
       </div>
+
+      {assistant ? <AssistantPanel /> : null}
     </div>
   );
 }

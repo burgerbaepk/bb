@@ -76,6 +76,27 @@ for**, never a fact about the restaurant, so there is no stock level, no
 receiving, no supplier table and no recipe link. Each of those is one small
 request away, and the ADR exists to be quoted when one arrives.
 
+**M26–M28 added the people and stock modules** — built in one session on the
+product owner's instruction, overriding §0 rule 1 (each runfile says so).
+Read the ADR before extending any of them; each one fixes a boundary against
+§1's _Do not build_ list:
+
+- **M26** `/admin/employees`, `/admin/attendance` —
+  [ADR 0032](docs/decisions/0032-staff-register-and-attendance.md). `employees`
+  is deliberately not `users`, has no pay column, and is owner-only so the
+  hand paying advances cannot invent the payee. Attendance is not payroll.
+- **M27** `/admin/advances` — [ADR 0033](docs/decisions/0033-staff-advances.md).
+  A till advance writes its `PAY_OUT` in the same transaction; an advance is
+  not an expense; balance is derived; no edit, no delete.
+- **M28** `/admin/stock` — [ADR 0034](docs/decisions/0034-stock-ledger.md).
+  **Supersedes §1's _inventory_ clause** and amends ADR 0026. A movement
+  ledger over `demand_items`; on-hand is `Σ delta`, never a column. No money,
+  no sales depletion — recipe costing stays excluded.
+
+Migrations `0008`–`0010` are applied to the pilot database. The M25 assistant
+reads all three modules (ADR 0031 amendment) — and any tool returning a `Qty`
+must send it as a string, because `toModelJson` reads unnamed bigints as paisa.
+
 ## The seventeen rules
 
 §2 lists R1–R17 and the mechanism that enforces each. The ones that bite most
