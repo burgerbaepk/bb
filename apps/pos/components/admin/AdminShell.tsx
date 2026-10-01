@@ -3,6 +3,10 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
+  BookUser,
+  ClipboardPen,
+  ShoppingCart,
+  Truck,
   ChartNoAxesColumn,
   ClipboardList,
   CalendarCheck,
@@ -63,8 +67,8 @@ const SECTIONS = [
     ],
   },
   {
-    // ADR 0032 — the attendance book is the manager's; the register of people
-    // it is kept against is the owner's, so the one who marks cannot invent.
+    // ADR 0032, ADR 0037 — the attendance book and the register of people it
+    // is kept against are both the manager's as well as the owner's.
     heading: 'People',
     items: [
       {
@@ -75,7 +79,29 @@ const SECTIONS = [
       },
       // ADR 0033 — the advance book. Not under Expenses: an advance is owed back.
       { href: '/admin/advances', label: 'Advances', icon: HandCoins, needs: 'reports.read' },
-      { href: '/admin/employees', label: 'Employees', icon: IdCard, needs: 'staff.write' },
+      { href: '/admin/employees', label: 'Employees', icon: IdCard, needs: 'expenses.write' },
+    ],
+  },
+  {
+    // ADR 0035, ADR 0036 — what the restaurant owes and is owed. Not under
+    // Oversight beside Expenses: a bill or a credit sale is a balance that
+    // has to be settled, not money already spent.
+    heading: 'Accounts',
+    items: [
+      { href: '/admin/suppliers', label: 'Suppliers', icon: Truck, needs: 'reports.read' },
+      {
+        href: '/admin/purchase-orders',
+        label: 'Purchase orders',
+        icon: ClipboardPen,
+        needs: 'reports.read',
+      },
+      { href: '/admin/purchases', label: 'Purchases', icon: ShoppingCart, needs: 'reports.read' },
+      {
+        href: '/admin/customers',
+        label: 'Credit customers',
+        icon: BookUser,
+        needs: 'reports.read',
+      },
     ],
   },
   {

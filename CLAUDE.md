@@ -83,8 +83,9 @@ Read the ADR before extending any of them; each one fixes a boundary against
 
 - **M26** `/admin/employees`, `/admin/attendance` —
   [ADR 0032](docs/decisions/0032-staff-register-and-attendance.md). `employees`
-  is deliberately not `users`, has no pay column, and is owner-only so the
-  hand paying advances cannot invent the payee. Attendance is not payroll.
+  is deliberately not `users` and has no pay column. Attendance is not
+  payroll. The register was owner-only; [ADR 0037](docs/decisions/0037-manager-keeps-registers.md)
+  gave it, and the supplier register, to the manager as well.
 - **M27** `/admin/advances` — [ADR 0033](docs/decisions/0033-staff-advances.md).
   A till advance writes its `PAY_OUT` in the same transaction; an advance is
   not an expense; balance is derived; no edit, no delete.
@@ -96,6 +97,26 @@ Read the ADR before extending any of them; each one fixes a boundary against
 Migrations `0008`–`0010` are applied to the pilot database. The M25 assistant
 reads all three modules (ADR 0031 amendment) — and any tool returning a `Qty`
 must send it as a string, because `toModelJson` reads unnamed bigints as paisa.
+
+**M29–M31 added purchasing, credit sales and an easier attendance screen** —
+again built in one session on the product owner's instruction:
+
+- **M29** `/admin/suppliers`, `/admin/purchase-orders`, `/admin/purchases` —
+  [ADR 0035](docs/decisions/0035-purchasing-and-suppliers.md). **Supersedes
+  §1's _purchasing_ and _supplier management_ clauses.** Supplier register is
+  owner and manager (ADR 0037); a posted bill raises the payable **and** books
+  its lines into the stock ledger as `RECEIVED`; no edit — cancel writes `RETURNED`. Payments are
+  against the supplier, never above the balance, `PAY_OUT` when from the till,
+  and never an expense.
+- **M30** `/admin/customers` and the till's **Credit** button —
+  [ADR 0036](docs/decisions/0036-customer-credit-accounts.md). Only accounts the
+  owner opened; walk-ins never get one. A credit sale is an ordinary invoice
+  taxed at the cash rate; the unpaid part is a `CHARGE` written in the finalize
+  transaction. Balances are derived; a credited invoice's charge drops out.
+- **M31** `/admin/attendance` — one-tap statuses, usual times, "everyone else
+  present", a month grid. The save action and ADR 0032 are unchanged.
+
+Migration `0011` is applied to the pilot database (2026-10-01).
 
 ## The seventeen rules
 

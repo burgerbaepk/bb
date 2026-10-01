@@ -12,11 +12,11 @@ import { collectRegister, normaliseTime } from './register';
  * Staff register and attendance mutations — ADR 0032,
  * docs/runfiles/M26-attendance.md.
  *
- * Two grants, deliberately different. The register of people is `staff.write`,
- * owner-only, so the hand that pays advances (M27) cannot also invent the
- * person being paid. The daily book is `expenses.write`, the manager's grant
- * for operating records since M23, which a cashier does not hold — nobody at
- * the till marks their own attendance.
+ * One grant for both, `expenses.write`: OWNER and MANAGER. ADR 0032 first kept
+ * the register of people owner-only (`staff.write`); the product owner moved
+ * it to the manager on 2026-10-01 (ADR 0037), and the owner-only activity log
+ * is now the check on who was added. A cashier still holds neither, so nobody
+ * at the till marks their own attendance.
  *
  * Every write is `dbWrite` in a transaction with its audit row inside it
  * (R2, R7).
@@ -245,7 +245,7 @@ export async function createEmployeeAction(
   form: FormData,
 ): Promise<AttendanceActionState> {
   const operator = await requireOperator();
-  assertPermission(operator, 'staff.write');
+  assertPermission(operator, 'expenses.write');
   const parsed = EmployeeInput.safeParse({
     name: form.get('name'),
     jobTitle: optional(form.get('jobTitle')),
@@ -278,7 +278,7 @@ export async function updateEmployeeAction(
   form: FormData,
 ): Promise<AttendanceActionState> {
   const operator = await requireOperator();
-  assertPermission(operator, 'staff.write');
+  assertPermission(operator, 'expenses.write');
   const parsed = EmployeeInput.safeParse({
     name: form.get('name'),
     jobTitle: optional(form.get('jobTitle')),
@@ -296,7 +296,7 @@ export async function updateEmployeeAction(
  */
 export async function setEmployeeActiveAction(id: string, isActive: boolean): Promise<void> {
   const operator = await requireOperator();
-  assertPermission(operator, 'staff.write');
+  assertPermission(operator, 'expenses.write');
   await writeEmployee(
     operator.id,
     id,

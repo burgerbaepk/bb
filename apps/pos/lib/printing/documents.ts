@@ -7,6 +7,8 @@ import { rasterizeLogoImage, rasterizeUrduLine } from '@natech/print-bridge/rast
 import { VENDOR_FOOTER_LINE, type Invoice, type Order, type OutletConfig } from '@natech/contracts';
 import type { BrandConfig } from '@natech/branding';
 import { PAYMENT_METHOD_LABELS, formatQty, formatRate } from '@/components/lib/format';
+import { subtract } from '@natech/domain';
+import { amountOnAccount } from '../accounts/rules';
 
 /**
  * The ESC/POS tax invoice document — BUILD-PLAN.md §6.1, §7.1, §15.3;
@@ -136,6 +138,18 @@ export async function invoiceEscPosDocument(
   lines.push(rule());
   lines.push({ text: `TOTAL  ${money(invoice.grandTotal)}`, bold: true, tall: true });
   lines.push(rule());
+
+  // ADR 0036 — a credit sale prints what was paid, what is now owed on the
+  // account and whose account, and a line for the customer to sign.
+  const onAccount = amountOnAccount(invoice);
+  if (onAccount > 0n) {
+    lines.push({ text: `Paid now  ${money(subtract(invoice.grandTotal, onAccount))}` });
+    lines.push({ text: `ON ACCOUNT  ${money(onAccount)}`, bold: true });
+    if (order.customerName !== null) lines.push({ text: `Account: ${order.customerName}` });
+    lines.push({ text: '' });
+    lines.push({ text: 'Signature: ____________________' });
+    lines.push(rule());
+  }
 
   for (const text of visibleReceiptLines(receipt.footerLines ?? [], invoice.taxLines.length > 0))
     lines.push({ text, align: 'center' });

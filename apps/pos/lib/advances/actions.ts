@@ -12,9 +12,9 @@ import { advanceBalance, refuseEntry } from './balance';
 /**
  * The staff advance book — ADR 0033, docs/runfiles/M27-staff-advances.md.
  *
- * `expenses.write`, as M23 and M26: OWNER and MANAGER. The register of people
- * is `staff.write`, owner-only (ADR 0032), so a manager can pay an advance but
- * cannot create the person it is paid to.
+ * `expenses.write`, as M23 and M26: OWNER and MANAGER. Since ADR 0037 the
+ * manager also keeps the register of people, so the owner-only activity log
+ * is the check on an advance paid to somebody the same hand added.
  *
  * One action for all four shapes of entry (runfile §3). Everything — the lock,
  * the balance, the rules, the till movement, both audit rows — happens in one

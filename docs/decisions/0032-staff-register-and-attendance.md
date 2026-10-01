@@ -3,6 +3,8 @@
 **Status:** accepted
 **Date:** 2026-09-25
 **Milestone:** [M26](../runfiles/M26-attendance.md)
+**Amended by:** [ADR 0037](0037-manager-keeps-registers.md) — the register
+is now `expenses.write` (owner and manager), not owner-only.
 **Touches:** BUILD-PLAN.md §1's _Do not build_ list, which names **payroll**.
 Two new tables (`employees`, `attendance`), one new enum (`attendance_status`),
 migration `0008`. No frozen contract changes ([ADR 0008](0008-phase-1-data-contracts.md)

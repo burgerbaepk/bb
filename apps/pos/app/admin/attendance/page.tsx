@@ -1,9 +1,10 @@
 import { can } from '@natech/contracts';
+import { AttendanceMonthGrid } from '@/components/admin/AttendanceMonthGrid';
 import { AttendanceRegister } from '@/components/admin/AttendanceRegister';
 import { PageHeading } from '@/components/admin/PageHeading';
 import { requirePermissionPage } from '@/lib/auth/session';
-import { readMonth, readRegister } from '@/lib/attendance/queries';
-import { daysElapsed, monthBounds, summariseMonth } from '@/lib/attendance/register';
+import { readMonth, readRegister, readUsualTimes } from '@/lib/attendance/queries';
+import { daysElapsed, monthBounds, shiftDate, summariseMonth } from '@/lib/attendance/register';
 import { readCurrentBusinessDate } from '@/lib/outlet/queries';
 
 /**
@@ -28,7 +29,13 @@ export default async function Page({
   const monthKey = businessDate.slice(0, 7);
   const [year = 0, mon = 0] = monthKey.split('-').map(Number);
   const { first, last } = monthBounds(monthKey);
-  const [rows, month] = await Promise.all([readRegister(businessDate), readMonth(first, last)]);
+  const [rows, month, usual] = await Promise.all([
+    readRegister(businessDate),
+    readMonth(first, last),
+    readUsualTimes(businessDate),
+  ]);
+  const days: string[] = [];
+  for (let day = first; day <= last; day = shiftDate(day, 1)) days.push(day);
 
   return (
     <>
@@ -36,18 +43,28 @@ export default async function Page({
         title="Attendance"
         note="The daily register for everyone who works here. It records who was in and when — it does not work out pay. Every change is kept in the activity log."
       />
-      <AttendanceRegister
-        businessDate={businessDate}
-        today={today}
-        rows={rows}
-        month={summariseMonth(month.people, month.rows, daysElapsed(monthKey, today))}
-        monthLabel={new Date(Date.UTC(year, mon - 1, 1)).toLocaleDateString('en-GB', {
-          month: 'long',
-          year: 'numeric',
-          timeZone: 'UTC',
-        })}
-        canWrite={can(viewer, 'expenses.write')}
-      />
+      <div className="print-document space-y-5">
+        <AttendanceRegister
+          // A new day is a new set of boxes; never carry taps across days.
+          key={businessDate}
+          businessDate={businessDate}
+          today={today}
+          rows={rows}
+          usual={Object.fromEntries(usual)}
+          canWrite={can(viewer, 'expenses.write')}
+        />
+        <AttendanceMonthGrid
+          monthLabel={`${new Date(Date.UTC(year, mon - 1, 1)).toLocaleDateString('en-GB', {
+            month: 'long',
+            year: 'numeric',
+            timeZone: 'UTC',
+          })} so far`}
+          days={days}
+          summary={summariseMonth(month.people, month.rows, daysElapsed(monthKey, today))}
+          marks={month.rows}
+          businessDate={businessDate}
+        />
+      </div>
     </>
   );
 }

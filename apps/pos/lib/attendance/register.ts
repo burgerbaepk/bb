@@ -16,6 +16,22 @@ export const STATUS_LABEL: Record<AttendanceStatus, string> = {
   OFF: 'Day off',
 };
 
+/** The one-letter chip on the register, and the cell in the month grid. */
+export const STATUS_SHORT: Record<AttendanceStatus, string> = {
+  PRESENT: 'P',
+  ABSENT: 'A',
+  LEAVE: 'L',
+  OFF: 'Off',
+};
+
+/** R15 — the colour always sits beside the letter and the label, never alone. */
+export const STATUS_TONE: Record<AttendanceStatus, string> = {
+  PRESENT: 'bg-ok-soft text-ok border-ok/40',
+  ABSENT: 'bg-danger-soft text-danger border-danger/40',
+  LEAVE: 'bg-info-soft text-info border-info/40',
+  OFF: 'bg-warn-soft text-warn border-warn/40',
+};
+
 /** One person's row exactly as the register form posted it. */
 export interface RegisterEntry {
   readonly employeeId: string;
@@ -198,4 +214,52 @@ export function summariseMonth(
       minutes,
     };
   });
+}
+
+/** One person's boxes on the register screen, as the manager is editing them. */
+export interface DraftMark {
+  readonly status: AttendanceStatus | null;
+  readonly timeIn: string;
+  readonly timeOut: string;
+  readonly note: string;
+}
+
+/**
+ * Set a status the way the one-tap buttons do. Choosing Present on a day with
+ * no times fills in the person's usual times; choosing anything else clears
+ * the times, because `collectRegister` refuses times on an absence and a
+ * manager should not have to empty two boxes to mark somebody off.
+ */
+export function withStatus(
+  draft: DraftMark,
+  status: AttendanceStatus | null,
+  usual: { readonly timeIn: string; readonly timeOut: string | null } | undefined,
+): DraftMark {
+  if (status !== 'PRESENT') return { ...draft, status, timeIn: '', timeOut: '' };
+  if (draft.timeIn !== '' || usual === undefined) return { ...draft, status };
+  return { ...draft, status, timeIn: usual.timeIn, timeOut: usual.timeOut ?? '' };
+}
+
+/**
+ * "Everyone else is present": every unmarked row becomes Present with its
+ * usual times. Rows already marked — the one absence the manager has just
+ * tapped — are left exactly as they are.
+ */
+export function markRestPresent(
+  drafts: ReadonlyMap<string, DraftMark>,
+  usual: ReadonlyMap<string, { readonly timeIn: string; readonly timeOut: string | null }>,
+): Map<string, DraftMark> {
+  return new Map(
+    [...drafts].map(([id, draft]) => [
+      id,
+      draft.status === null ? withStatus(draft, 'PRESENT', usual.get(id)) : draft,
+    ]),
+  );
+}
+
+/** The business date `days` either side of `date` (`YYYY-MM-DD`), for the day arrows. */
+export function shiftDate(date: string, days: number): string {
+  const at = new Date(`${date}T12:00:00Z`);
+  at.setUTCDate(at.getUTCDate() + days);
+  return at.toISOString().slice(0, 10);
 }

@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
+  markRestPresent,
+  shiftDate,
+  withStatus,
   collectRegister,
   daysElapsed,
   formatHours,
   monthBounds,
   summariseMonth,
   workedMinutes,
+  type DraftMark,
   type RegisterEntry,
 } from './register';
 
@@ -104,5 +108,54 @@ describe('the month (gate 3, R16)', () => {
     expect(daysElapsed('2024-02', '2026-09-25')).toBe(29);
     expect(daysElapsed('2026-10', '2026-09-25')).toBe(0);
     expect(monthBounds('2024-02')).toEqual({ first: '2024-02-01', last: '2024-02-29' });
+  });
+});
+
+describe('one-tap marking (M31)', () => {
+  const blank: DraftMark = { status: null, timeIn: '', timeOut: '', note: '' };
+  const usual = { timeIn: '16:00', timeOut: '01:30' };
+
+  it('fills the usual times when Present is tapped on an empty row', () => {
+    expect(withStatus(blank, 'PRESENT', usual)).toEqual({
+      status: 'PRESENT',
+      timeIn: '16:00',
+      timeOut: '01:30',
+      note: '',
+    });
+  });
+
+  it('keeps times already typed, and clears them for an absence', () => {
+    const typed = { ...blank, timeIn: '17:15' };
+    expect(withStatus(typed, 'PRESENT', usual).timeIn).toBe('17:15');
+    expect(withStatus({ ...typed, status: 'PRESENT' }, 'ABSENT', usual)).toEqual({
+      status: 'ABSENT',
+      timeIn: '',
+      timeOut: '',
+      note: '',
+    });
+  });
+
+  it('produces rows the register accepts — no times on an absence', () => {
+    const marked = withStatus({ ...blank, timeIn: '16:00' }, 'OFF', usual);
+    const { errors } = collectRegister([
+      { ...marked, employeeId: 'a', name: 'Bilal', status: marked.status ?? '' },
+    ]);
+    expect(errors).toEqual([]);
+  });
+
+  it('marks only the unmarked rows present', () => {
+    const drafts = new Map<string, DraftMark>([
+      ['a', blank],
+      ['b', { ...blank, status: 'ABSENT' }],
+    ]);
+    const after = markRestPresent(drafts, new Map([['a', usual]]));
+    expect(after.get('a')?.status).toBe('PRESENT');
+    expect(after.get('a')?.timeIn).toBe('16:00');
+    expect(after.get('b')?.status).toBe('ABSENT');
+  });
+
+  it('steps across a month end', () => {
+    expect(shiftDate('2026-09-30', 1)).toBe('2026-10-01');
+    expect(shiftDate('2026-03-01', -1)).toBe('2026-02-28');
   });
 });

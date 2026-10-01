@@ -8,13 +8,15 @@ import { parseQty, qty, qtyToString, type Qty } from '@natech/domain';
  * book they read inside their transaction.
  */
 
-export type StockKind = 'RECEIVED' | 'ISSUED' | 'WASTED' | 'COUNTED';
+export type StockKind = 'RECEIVED' | 'ISSUED' | 'WASTED' | 'COUNTED' | 'RETURNED';
 
 export const KIND_LABEL: Record<StockKind, string> = {
   RECEIVED: 'Received',
   ISSUED: 'Issued to kitchen',
   WASTED: 'Wasted',
   COUNTED: 'Counted',
+  // ADR 0035 — written only by cancelling a supplier bill.
+  RETURNED: 'Returned to supplier',
 };
 
 /** `20.000` → `20`, `0.250` → `0.25`. For display; persistence uses `qtyToString`. */
@@ -36,6 +38,7 @@ export function movementDelta(kind: StockKind, quantity: Qty, book: Qty): Qty {
       return quantity;
     case 'ISSUED':
     case 'WASTED':
+    case 'RETURNED':
       return qty(-quantity);
     case 'COUNTED':
       // The variance: negative is shrinkage, positive is an unrecorded receipt.
@@ -74,7 +77,8 @@ export function refuseMovement(m: MovementRequest): string | null {
   if (m.kind === 'WASTED' && m.note === null) return `${m.name}: say why it was wasted.`;
   // ADR 0034 — no negative stock. If the book says 4 and the kitchen took 5,
   // one of the two is wrong, and the fix is a count, not a negative.
-  if ((m.kind === 'ISSUED' || m.kind === 'WASTED') && m.quantity > m.book)
+  // A cancelled bill whose goods are already eaten cannot hand them back.
+  if (m.kind !== 'RECEIVED' && m.quantity > m.book)
     return `${m.name}: the book shows ${showQty(m.book)} ${m.unit}. Record the delivery, or count it first.`;
   return null;
 }

@@ -55,3 +55,16 @@ describe('back-office sidebar navigation', () => {
     expect(nav.getByRole('link', { name: 'Menu' })).toBeInTheDocument();
   });
 });
+
+/**
+ * ADR 0037 — a manager keeps the staff register, the attendance book and the
+ * supplier side of purchasing; user accounts stay with the owner.
+ */
+describe('what a manager reaches', () => {
+  it('shows Employees, Attendance and the supplier pages, but not Staff and roles', () => {
+    const nav = renderShell(['expenses.write', 'reports.read']);
+    for (const name of ['Employees', 'Attendance', 'Suppliers', 'Purchase orders', 'Purchases'])
+      expect(nav.getByRole('link', { name })).toBeInTheDocument();
+    expect(nav.queryByRole('link', { name: 'Staff and roles' })).not.toBeInTheDocument();
+  });
+});

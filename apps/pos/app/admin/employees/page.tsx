@@ -4,12 +4,12 @@ import { requirePermissionPage } from '@/lib/auth/session';
 import { readEmployees } from '@/lib/attendance/queries';
 
 /**
- * The staff register — ADR 0032. `staff.write`, owner-only, like
- * `/admin/staff`: the person who pays an advance (M27) must not also be the
- * person who can create the employee it is paid to.
+ * The staff register — ADR 0032, amended by ADR 0037: `expenses.write`, so a
+ * manager keeps it as well as the owner. Every addition is an audit row the
+ * owner reads in the activity log.
  */
 export default async function Page() {
-  await requirePermissionPage('staff.write');
+  await requirePermissionPage('expenses.write');
   return (
     <>
       <PageHeading

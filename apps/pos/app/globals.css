@@ -14,6 +14,19 @@ body {
 }
 
 @media print {
+  /* M29 — a printable back-office document (a purchase order, a statement, a
+     bill). Same approach as the QR sheet below: hide the chrome by kind, and
+     anything marked \`no-print\` (forms, buttons), and keep the page heading,
+     which on a document is its title. */
+  body:has(.print-document) aside,
+  .no-print {
+    display: none !important;
+  }
+
+  body:has(.print-document) main {
+    padding: 0;
+  }
+
   /* Every chrome element, by kind rather than by position: the rail and the
      page heading both moved in ADR 0020, and a structural selector that has to
      be re-derived each time the shell changes is a sheet of QR codes printed

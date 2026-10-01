@@ -69,3 +69,28 @@ it('includes a centered online-ordering QR only when a storefront URL is set', a
   expect(unset.lines.some((line) => 'text' in line && line.text === 'Order Online')).toBe(false);
   expect(unset.lines.some((line) => 'raster' in line)).toBe(false);
 });
+
+/**
+ * ADR 0036 — a credit invoice says on paper what was paid, what is owed and
+ * whose account it is on; an invoice paid in full says none of it.
+ */
+it('prints the on-account amount and holder on a credit invoice, and nothing on a paid one', async () => {
+  const textOf = (document: Awaited<ReturnType<typeof invoiceEscPosDocument>>) =>
+    document.lines.map((line) => ('text' in line ? line.text : '')).join('\n');
+
+  const paid = textOf(
+    await invoiceEscPosDocument(MOCK_OUTLET, MOCK_REFERENCE_ORDER, MOCK_REFERENCE_INVOICE),
+  );
+  expect(paid).not.toContain('ON ACCOUNT');
+
+  const credit = textOf(
+    await invoiceEscPosDocument(
+      MOCK_OUTLET,
+      { ...MOCK_REFERENCE_ORDER, customerName: 'Account Holder' },
+      { ...MOCK_REFERENCE_INVOICE, payments: [] },
+    ),
+  );
+  expect(credit).toContain('ON ACCOUNT');
+  expect(credit).toContain('Account: Account Holder');
+  expect(credit).toContain('Signature:');
+});

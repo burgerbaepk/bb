@@ -339,3 +339,30 @@ it('prints KOT through its own icon and disables it for an empty cart', () => {
   renderCart([], undefined, { onPrintKot });
   expect(screen.getByRole('button', { name: 'Print KOT' })).toBeDisabled();
 });
+
+/**
+ * ADR 0036 — the credit sale sits beside Finalize, opens only when the
+ * screen offers it, and is off while offline: the account balance and limit
+ * live on the server.
+ */
+describe('the credit sale button', () => {
+  it('is absent unless the screen offers credit', () => {
+    renderCart([LINE]);
+    expect(screen.queryByRole('button', { name: /credit/i })).not.toBeInTheDocument();
+  });
+
+  it('opens the credit sale, and is disabled offline and on an empty cart', () => {
+    const onCredit = vi.fn();
+    const { unmount } = renderCart([LINE], () => {}, { onCredit });
+    fireEvent.click(screen.getByRole('button', { name: /credit/i }));
+    expect(onCredit).toHaveBeenCalledOnce();
+    unmount();
+
+    const offline = renderCart([LINE], () => {}, { onCredit, creditDisabled: true });
+    expect(screen.getByRole('button', { name: /credit/i })).toBeDisabled();
+    offline.unmount();
+
+    renderCart([], () => {}, { onCredit });
+    expect(screen.getByRole('button', { name: /credit/i })).toBeDisabled();
+  });
+});

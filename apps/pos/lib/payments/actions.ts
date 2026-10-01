@@ -2,10 +2,13 @@
 
 import { revalidatePath } from 'next/cache';
 import { after } from 'next/server';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import {
   allocateLocalNo,
+  customerAccountEntries,
+  customerAccounts,
+  customers,
   dbWrite,
   invoiceTaxLines,
   invoices,
@@ -20,7 +23,11 @@ import {
   buildTaxSnapshot,
   computeTotals,
   orderMachine,
+  ZERO,
   paisa,
+  subtract,
+  sum,
+  type Paisa,
   type Totals,
 } from '@natech/domain';
 import { buildEscPosBuffer } from '@natech/print-bridge/escpos';
@@ -37,6 +44,8 @@ import {
 import type { TillIdentity } from '../auth/session';
 import { currentBusinessDate } from '../orders/businessDate';
 import { loadPriceableOrder } from '../orders/pricing';
+import { readAccountBalances } from '../accounts/ledger';
+import { refuseCreditSale } from '../accounts/rules';
 import { invoiceEscPosDocument } from '../printing/documents';
 import { readInvoiceStorefrontUrl } from '../seo/queries';
 import { readBrandConfig } from '../branding/queries';
@@ -66,12 +75,24 @@ import {
  */
 class FinalizeRefusal extends Error {}
 
-const FinalizeOrderInputSchema = z.object({
-  orderId: z.uuid(),
-  slices: z.array(PaymentSliceDraftSchema).min(1),
-  /** Retained for wire compatibility; printing uses a fresh server-side outlet read. */
-  outlet: OutletConfigSchema,
-});
+const FinalizeOrderInputSchema = z
+  .object({
+    orderId: z.uuid(),
+    slices: z.array(PaymentSliceDraftSchema),
+    /** Retained for wire compatibility; printing uses a fresh server-side outlet read. */
+    outlet: OutletConfigSchema,
+    /**
+     * ADR 0036 — a credit sale. Whatever the approved slices do not cover goes
+     * on this account. Absent on every ordinary sale, which then must be paid
+     * in full exactly as before.
+     */
+    account: z.object({ accountId: z.uuid() }).nullish(),
+  })
+  // A credit sale may take nothing at the counter; any other sale takes something.
+  .refine((input) => input.slices.length > 0 || (input.account ?? null) !== null, {
+    message: 'At least one payment is required.',
+    path: ['slices'],
+  });
 /**
  * `z.input`, not `z.infer`/`z.output` — same reasoning as
  * `placeOrderAction`'s `PlaceOrderInput` (`lib/orders/actions.ts`):
@@ -242,8 +263,15 @@ export async function finalizeOrderAction(input: FinalizeOrderInput): Promise<Fi
       orderMachine.assert(finalizableStatus, 'FINALIZED');
 
       const approved = parsed.data.slices.filter((slice) => slice.attemptStatus === 'APPROVED');
-      if (approved.length === 0)
+      const accountId = parsed.data.account?.accountId ?? null;
+      if (approved.length === 0 && accountId === null)
         throw new FinalizeRefusal('At least one approved payment is required.');
+      // ADR 0036 — the part paid now on a credit sale is cash. The part on
+      // the account has no tender yet, and R9 needs the rate settled now, so
+      // the whole invoice is taxed at the cash rate: the reduced card rate is
+      // for a sale paid by card, which this one is not.
+      if (accountId !== null && approved.some((slice) => slice.method !== 'CASH'))
+        throw new FinalizeRefusal('On a credit sale, the part paid now must be cash.');
 
       const effectiveTaxPolicy = withServiceChargeOverride(
         taxPolicy,
@@ -257,18 +285,68 @@ export async function finalizeOrderAction(input: FinalizeOrderInput): Promise<Fi
         serviceStartedAt: order.serviceStartedAt,
         rules: taxRules,
         policy: effectiveTaxPolicy,
-        payments: approved.map((slice) => ({ method: slice.method, amount: slice.amount })),
+        payments:
+          accountId === null
+            ? approved.map((slice) => ({ method: slice.method, amount: slice.amount }))
+            : // Cash only, so the weight changes nothing; zero is what the
+              // payment sheet's own preview passes.
+              [{ method: 'CASH' as const, amount: ZERO }],
         // ADR 0017 — the actual charge: read off `order.orderDiscount`, never
         // a client-supplied parameter, so this never has to trust a discount
         // it did not itself authorize.
         orderDiscount: order.orderDiscount,
       });
 
-      const taken = approved.reduce((sum, slice) => sum + slice.amount, 0n as bigint);
-      if (taken !== totals.grandTotal) {
-        throw new FinalizeRefusal(
-          `The amount taken (${taken}) does not match the total due (${totals.grandTotal}).`,
-        );
+      const taken = sum(approved.map((slice) => slice.amount));
+      let credit: {
+        readonly accountId: string;
+        readonly customerId: string;
+        readonly name: string | null;
+        readonly phone: string | null;
+        readonly amount: Paisa;
+      } | null = null;
+      if (accountId === null) {
+        if (taken !== totals.grandTotal) {
+          throw new FinalizeRefusal(
+            `The amount taken (${taken}) does not match the total due (${totals.grandTotal}).`,
+          );
+        }
+      } else {
+        // ADR 0036 — locked so two credit sales to one account rung up at once
+        // cannot both read the old balance and together pass the limit.
+        const [account] = await tx
+          .select({
+            id: customerAccounts.id,
+            customerId: customerAccounts.customerId,
+            openingBalance: customerAccounts.openingBalance,
+            creditLimit: customerAccounts.creditLimit,
+            isActive: customerAccounts.isActive,
+            name: customers.name,
+            phone: customers.phone,
+          })
+          .from(customerAccounts)
+          .innerJoin(customers, eq(customers.id, customerAccounts.customerId))
+          .where(and(eq(customerAccounts.id, accountId), isNull(customerAccounts.deletedAt)))
+          .for('update', { of: customerAccounts });
+        if (account === undefined)
+          throw new FinalizeRefusal('That credit account no longer exists.');
+        const balance =
+          (await readAccountBalances(tx, [account])).get(account.id)?.balance ?? paisa(0n);
+        const refusal = refuseCreditSale({
+          grandTotal: totals.grandTotal,
+          paidNow: taken,
+          balance,
+          creditLimit: account.creditLimit === null ? null : paisa(account.creditLimit),
+          accountActive: account.isActive,
+        });
+        if (refusal !== null) throw new FinalizeRefusal(refusal);
+        credit = {
+          accountId: account.id,
+          customerId: account.customerId,
+          name: account.name,
+          phone: account.phone,
+          amount: subtract(totals.grandTotal, taken),
+        };
       }
 
       const businessDate = await currentBusinessDate(tx);
@@ -338,8 +416,46 @@ export async function finalizeOrderAction(input: FinalizeOrderInput): Promise<Fi
 
       await tx
         .update(orders)
-        .set({ status: 'FINALIZED', updatedAt: now })
+        // ADR 0036 — a credit sale is to the account holder, whoever the
+        // cashier had (or had not) attached; the invoice prints their name.
+        .set({
+          status: 'FINALIZED',
+          updatedAt: now,
+          ...(credit === null ? {} : { customerId: credit.customerId }),
+        })
         .where(eq(orders.id, order.id));
+
+      if (credit !== null) {
+        const [charge] = await tx
+          .insert(customerAccountEntries)
+          .values({
+            accountId: credit.accountId,
+            kind: 'CHARGE',
+            amount: credit.amount,
+            invoiceId: insertedInvoice.id,
+            occurredOn: businessDate,
+            recordedBy: viewer.id,
+          })
+          .returning({ id: customerAccountEntries.id });
+        if (charge === undefined) throw new FinalizeRefusal('The credit sale could not be saved.');
+        await writeAudit(
+          tx,
+          { actorId: viewer.id },
+          {
+            entity: 'customer_account_entries',
+            entityId: charge.id,
+            action: 'CUSTOMER_ACCOUNT_CHARGED',
+            after: {
+              accountId: credit.accountId,
+              invoiceId: insertedInvoice.id,
+              orderId: order.id,
+              customerId: credit.customerId,
+              amount: credit.amount.toString(),
+              paidNow: taken.toString(),
+            },
+          },
+        );
+      }
 
       // Finalizing an invoice must not make an operational decision about
       // the dining room. Table status and seating sessions are managed from
@@ -368,7 +484,13 @@ export async function finalizeOrderAction(input: FinalizeOrderInput): Promise<Fi
         viewer.displayName,
         binding.terminalLabel,
       );
-      return { order, invoice };
+      return {
+        order:
+          credit === null
+            ? order
+            : { ...order, customerName: credit.name, customerPhone: credit.phone },
+        invoice,
+      };
     });
 
     // Cache invalidation and realtime notification happen after the fiscal

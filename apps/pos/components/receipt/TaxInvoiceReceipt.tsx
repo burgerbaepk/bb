@@ -20,6 +20,8 @@ import {
   ReceiptRow,
   ReceiptTitle,
 } from './ReceiptFrame';
+import { subtract } from '@natech/domain';
+import { amountOnAccount } from '@/lib/accounts/rules';
 import { OrderOnlineQr } from './OrderOnlineQr';
 import { ReceiptMoney } from './ReceiptMoney';
 
@@ -63,6 +65,7 @@ export function TaxInvoiceReceipt({
   operatorHeaderLines = [],
   paymentDetails,
 }: TaxInvoiceReceiptProps) {
+  const onAccount = amountOnAccount(invoice);
   return (
     <ReceiptFrame
       outlet={outlet}
@@ -115,9 +118,10 @@ export function TaxInvoiceReceipt({
 
       <ReceiptOrderDetails
         order={order}
-        paymentLabel={invoice.payments
-          .map((payment) => PAYMENT_METHOD_LABELS[payment.method])
-          .join(' + ')}
+        paymentLabel={[
+          ...invoice.payments.map((payment) => PAYMENT_METHOD_LABELS[payment.method]),
+          ...(onAccount > 0n ? ['On account'] : []),
+        ].join(' + ')}
       />
       <ReceiptItems order={order} showUrdu={showUrdu} />
 
@@ -164,6 +168,22 @@ export function TaxInvoiceReceipt({
       </div>
 
       <ReceiptGrandTotal value={invoice.grandTotal} />
+
+      {/* ADR 0036 — a credit sale says, on the paper the customer signs for,
+          how much was paid and how much is now owed on their account. */}
+      {onAccount > 0n && (
+        <div className="mt-2 space-y-1 px-0.5 text-[13px]">
+          <ReceiptRow
+            label="Paid now"
+            value={<ReceiptMoney value={subtract(invoice.grandTotal, onAccount)} />}
+          />
+          <ReceiptRow
+            label={`On account${order.customerName === null ? '' : ` — ${order.customerName}`}`}
+            value={<ReceiptMoney value={onAccount} />}
+          />
+          <p className="pt-3 text-[11px]">Customer signature: ____________________</p>
+        </div>
+      )}
 
       <OrderOnlineQr url={storefrontUrl} />
       {offline && <p className="text-center font-semibold">{OFFLINE_INVOICE_BANNER}</p>}

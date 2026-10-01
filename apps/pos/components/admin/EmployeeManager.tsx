@@ -31,8 +31,8 @@ function Feedback({ state }: { readonly state: AttendanceActionState }) {
 }
 
 /**
- * The staff register — ADR 0032. Owner-only; the page and every action check
- * `staff.write`. People are deactivated, never deleted: a person who has left
+ * The staff register — ADR 0032, ADR 0037. The page and every action
+ * check `expenses.write` (owner and manager). People are deactivated, never deleted: a person who has left
  * still has attendance on the book.
  */
 export function EmployeeManager({ rows }: { readonly rows: readonly EmployeeRow[] }) {

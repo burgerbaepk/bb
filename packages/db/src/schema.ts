@@ -130,7 +130,40 @@ export const stockMovementKindEnum = pgEnum('stock_movement_kind', [
   'ISSUED',
   'WASTED',
   'COUNTED',
+  // ADR 0035 — out, back to the supplier. Written when a posted supplier bill
+  // is cancelled, so the goods it booked in leave the book by a counter-entry
+  // rather than by deleting the receipt.
+  'RETURNED',
 ]);
+
+/**
+ * ADR 0035 — a purchase order's lifecycle. OPEN while goods are awaited;
+ * CLOSED once billed (or closed by hand when the rest will never come);
+ * CANCELLED when it should never have been sent.
+ */
+export const purchaseOrderStatusEnum = pgEnum('purchase_order_status', [
+  'OPEN',
+  'CLOSED',
+  'CANCELLED',
+]);
+
+/** ADR 0035 — a supplier bill is posted whole, or cancelled by counter-entry. No draft. */
+export const supplierBillStatusEnum = pgEnum('supplier_bill_status', ['POSTED', 'CANCELLED']);
+
+/**
+ * ADR 0035, ADR 0036 — how money moved between the restaurant and a supplier
+ * or an account customer. Not `payment_method`: that enum is the till's tender
+ * list and a frozen contract (ADR 0008), and a cheque is not a till tender.
+ */
+export const settlementMethodEnum = pgEnum('settlement_method', [
+  'CASH',
+  'BANK_TRANSFER',
+  'CHEQUE',
+  'WALLET',
+]);
+
+/** ADR 0036 — an account customer's ledger: a sale on credit, or money received. */
+export const customerEntryKindEnum = pgEnum('customer_entry_kind', ['CHARGE', 'PAYMENT']);
 
 /** §7.8 */
 /* ------------------------------------------------------------- 5.1 outlet */
@@ -1143,11 +1176,307 @@ export const stockMovements = pgTable(
     index('stock_movements_occurred_on_idx').on(t.occurredOn),
     // The sign belongs to the kind. A receipt that lowers the book, or an issue
     // that raises it, is a bug somewhere upstream and is refused here.
+    // `::text` because migration 0011 adds `RETURNED` and this constraint in
+    // one transaction, and Postgres refuses a new enum value cast inside the
+    // transaction that added it ("unsafe use of new value").
     check(
       'stock_movements_delta_matches_kind',
-      sql`(${t.kind} = 'RECEIVED' and ${t.qty} > 0 and ${t.delta} = ${t.qty}) or (${t.kind} in ('ISSUED', 'WASTED') and ${t.qty} > 0 and ${t.delta} = -${t.qty}) or (${t.kind} = 'COUNTED' and ${t.qty} >= 0)`,
+      sql`(${t.kind} = 'RECEIVED' and ${t.qty} > 0 and ${t.delta} = ${t.qty}) or (${t.kind}::text in ('ISSUED', 'WASTED', 'RETURNED') and ${t.qty} > 0 and ${t.delta} = -${t.qty}) or (${t.kind} = 'COUNTED' and ${t.qty} >= 0)`,
     ),
     check('stock_movements_waste_has_reason', sql`${t.kind} <> 'WASTED' or ${t.note} is not null`),
+  ],
+);
+
+/* ----------------------------------------------------- purchasing (M29) */
+
+/**
+ * The supplier register — ADR 0035, docs/runfiles/M29-purchasing.md.
+ *
+ * Owner-only to write (`staff.write`), for the reason ADR 0032 gave for the
+ * staff register: the classic fraud against a payables book is the fictitious
+ * supplier, and it needs the same hand to create the supplier and to pay it.
+ * A manager records bills and payments; only the owner adds who they go to.
+ *
+ * `opening_balance` is what the restaurant already owed this supplier on the
+ * day the book started — positive paisa owed, never a running figure. The
+ * balance itself is derived: opening + Σ posted bills − Σ payments.
+ */
+export const suppliers = pgTable(
+  'suppliers',
+  {
+    ...baseColumns,
+    name: text('name').notNull(),
+    contactPerson: text('contact_person'),
+    phone: text('phone'),
+    address: text('address'),
+    /** The supplier's NTN, for the bill file. Not validated: it is their number. */
+    ntn: text('ntn'),
+    openingBalance: paisa('opening_balance')
+      .notNull()
+      .default(sql`0`),
+    note: text('note'),
+    isActive: boolean('is_active').notNull().default(true),
+  },
+  (t) => [
+    uniqueIndex('suppliers_name_idx')
+      .on(sql`lower(${t.name})`)
+      .where(sql`${t.deletedAt} is null`),
+  ],
+);
+
+/**
+ * A purchase order — ADR 0035. What the restaurant asked a supplier to
+ * deliver, at what expected price. It moves no stock and owes no money; the
+ * supplier bill does both. `po_no` is an identity column: a PO number is a
+ * reference for a phone call, not a fiscal sequence, so a gap after a rollback
+ * is harmless (unlike `invoice_counter`).
+ */
+export const purchaseOrders = pgTable(
+  'purchase_orders',
+  {
+    ...baseColumns,
+    poNo: integer('po_no').generatedAlwaysAsIdentity().notNull(),
+    supplierId: uuid('supplier_id')
+      .notNull()
+      .references(() => suppliers.id),
+    status: purchaseOrderStatusEnum('status').notNull().default('OPEN'),
+    orderedOn: date('ordered_on').notNull(),
+    expectedOn: date('expected_on'),
+    note: text('note'),
+    createdBy: uuid('created_by').references(() => users.id),
+  },
+  (t) => [
+    uniqueIndex('purchase_orders_po_no_idx').on(t.poNo),
+    index('purchase_orders_supplier_idx').on(t.supplierId),
+  ],
+);
+
+/** One catalogue item on a purchase order. `amount` is the expected line value, if agreed. */
+export const purchaseOrderLines = pgTable(
+  'purchase_order_lines',
+  {
+    ...baseColumns,
+    purchaseOrderId: uuid('purchase_order_id')
+      .notNull()
+      .references(() => purchaseOrders.id),
+    itemId: uuid('item_id')
+      .notNull()
+      .references(() => demandItems.id),
+    qty: numeric('qty', { precision: 10, scale: 3 }).notNull(),
+    amount: paisa('amount'),
+  },
+  (t) => [
+    index('purchase_order_lines_po_idx').on(t.purchaseOrderId),
+    check('purchase_order_lines_qty_positive', sql`${t.qty} > 0`),
+    check('purchase_order_lines_amount_not_negative', sql`${t.amount} is null or ${t.amount} >= 0`),
+  ],
+);
+
+/**
+ * A supplier bill (purchase invoice) — ADR 0035.
+ *
+ * Posting one does two things in one transaction: it raises what the
+ * restaurant owes the supplier, and it books every line into the stock ledger
+ * as `RECEIVED` (amending ADR 0034, which refused the link). There is no
+ * draft and no edit. A wrong bill is cancelled, which writes a `RETURNED`
+ * stock movement per line, and entered again.
+ *
+ * `total` is stored, as `invoices.grand_total` is: the bill is immutable once
+ * posted, so the stored figure cannot drift from its lines, and every payables
+ * query would otherwise re-sum every line ever written.
+ *
+ * No tax column. Input tax on a supplier's bill is not this restaurant's
+ * output tax, and R9's gate allows a computed tax figure only on `invoices`.
+ * Whatever the supplier charged on top of the goods — their sales tax,
+ * freight, loading — is `charges`.
+ */
+export const supplierBills = pgTable(
+  'supplier_bills',
+  {
+    ...baseColumns,
+    billNo: integer('bill_no').generatedAlwaysAsIdentity().notNull(),
+    supplierId: uuid('supplier_id')
+      .notNull()
+      .references(() => suppliers.id),
+    purchaseOrderId: uuid('purchase_order_id').references(() => purchaseOrders.id),
+    /** The supplier's own invoice number, as printed on their paper. */
+    supplierRef: text('supplier_ref'),
+    billedOn: date('billed_on').notNull(),
+    dueOn: date('due_on'),
+    charges: paisa('charges')
+      .notNull()
+      .default(sql`0`),
+    discount: paisa('discount')
+      .notNull()
+      .default(sql`0`),
+    total: paisa('total').notNull(),
+    status: supplierBillStatusEnum('status').notNull().default('POSTED'),
+    note: text('note'),
+    createdBy: uuid('created_by').references(() => users.id),
+    cancelledAt: at('cancelled_at'),
+    cancelledBy: uuid('cancelled_by').references(() => users.id),
+    cancelReason: text('cancel_reason'),
+  },
+  (t) => [
+    uniqueIndex('supplier_bills_bill_no_idx').on(t.billNo),
+    // The same supplier invoice entered twice is the bill paid twice. Scoped
+    // to posted bills, so a cancelled entry can be re-entered correctly.
+    uniqueIndex('supplier_bills_supplier_ref_idx')
+      .on(t.supplierId, sql`lower(${t.supplierRef})`)
+      .where(
+        sql`${t.deletedAt} is null and ${t.supplierRef} is not null and ${t.status} = 'POSTED'`,
+      ),
+    index('supplier_bills_supplier_idx').on(t.supplierId),
+    index('supplier_bills_billed_on_idx').on(t.billedOn),
+    check('supplier_bills_charges_not_negative', sql`${t.charges} >= 0`),
+    check('supplier_bills_discount_not_negative', sql`${t.discount} >= 0`),
+    check('supplier_bills_total_not_negative', sql`${t.total} >= 0`),
+    check(
+      'supplier_bills_cancel_has_reason',
+      sql`${t.status} <> 'CANCELLED' or (${t.cancelReason} is not null and ${t.cancelledAt} is not null)`,
+    ),
+  ],
+);
+
+/** One line of a supplier bill. `amount` is the line value as the bill states it. */
+export const supplierBillLines = pgTable(
+  'supplier_bill_lines',
+  {
+    ...baseColumns,
+    billId: uuid('bill_id')
+      .notNull()
+      .references(() => supplierBills.id),
+    itemId: uuid('item_id')
+      .notNull()
+      .references(() => demandItems.id),
+    qty: numeric('qty', { precision: 10, scale: 3 }).notNull(),
+    amount: paisa('amount').notNull(),
+  },
+  (t) => [
+    index('supplier_bill_lines_bill_idx').on(t.billId),
+    index('supplier_bill_lines_item_idx').on(t.itemId),
+    check('supplier_bill_lines_qty_positive', sql`${t.qty} > 0`),
+    check('supplier_bill_lines_amount_not_negative', sql`${t.amount} >= 0`),
+  ],
+);
+
+/**
+ * Money paid to a supplier — ADR 0035. Against the supplier, not against a
+ * bill: a restaurant pays its vegetable man "Rs. 40,000 on account", not
+ * invoice by invoice, and an allocation table would be a second ledger that
+ * has to agree with this one.
+ *
+ * Paid in cash from the drawer means a `PAY_OUT` on the open shift in the same
+ * transaction, linked here, exactly as ADR 0033 does for a staff advance.
+ */
+export const supplierPayments = pgTable(
+  'supplier_payments',
+  {
+    ...baseColumns,
+    supplierId: uuid('supplier_id')
+      .notNull()
+      .references(() => suppliers.id),
+    amount: paisa('amount').notNull(),
+    method: settlementMethodEnum('method').notNull(),
+    /** Cheque number, transfer reference. */
+    reference: text('reference'),
+    paidOn: date('paid_on').notNull(),
+    cashMovementId: uuid('cash_movement_id').references(() => cashMovements.id),
+    note: text('note'),
+    recordedBy: uuid('recorded_by').references(() => users.id),
+  },
+  (t) => [
+    index('supplier_payments_supplier_idx').on(t.supplierId),
+    index('supplier_payments_paid_on_idx').on(t.paidOn),
+    check('supplier_payments_amount_positive', sql`${t.amount} > 0`),
+    check(
+      'supplier_payments_till_is_cash',
+      sql`${t.cashMovementId} is null or ${t.method} = 'CASH'`,
+    ),
+  ],
+);
+
+/* -------------------------------------------- customer accounts (M30) */
+
+/**
+ * A credit account — ADR 0036, docs/runfiles/M30-customer-accounts.md.
+ *
+ * One per `customers` row that the owner has agreed to sell to on credit. A
+ * walk-in has no account and never gets one by accident: the till's customer
+ * capture (ADR 0016) writes `customers`, never this table. Owner-only to
+ * open (`staff.write`), so a cashier cannot invent a customer and sell to
+ * them on credit.
+ *
+ * `credit_limit` null means no limit. The balance is derived:
+ * opening + Σ charges on invoices still FINALIZED − Σ payments.
+ */
+export const customerAccounts = pgTable(
+  'customer_accounts',
+  {
+    ...baseColumns,
+    customerId: uuid('customer_id')
+      .notNull()
+      .references(() => customers.id),
+    creditLimit: paisa('credit_limit'),
+    openingBalance: paisa('opening_balance')
+      .notNull()
+      .default(sql`0`),
+    note: text('note'),
+    isActive: boolean('is_active').notNull().default(true),
+  },
+  (t) => [
+    uniqueIndex('customer_accounts_customer_idx')
+      .on(t.customerId)
+      .where(sql`${t.deletedAt} is null`),
+    check(
+      'customer_accounts_limit_not_negative',
+      sql`${t.creditLimit} is null or ${t.creditLimit} >= 0`,
+    ),
+  ],
+);
+
+/**
+ * An account customer's ledger — ADR 0036.
+ *
+ * `CHARGE` is the unpaid part of a finalized invoice, written in the finalize
+ * transaction, one per invoice at most. `PAYMENT` is money received later.
+ * A charge on an invoice later reversed by a credit note drops out of the
+ * balance on read (the invoice is `CREDITED`), so the credit-note path needs
+ * no knowledge of accounts.
+ */
+export const customerAccountEntries = pgTable(
+  'customer_account_entries',
+  {
+    ...baseColumns,
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => customerAccounts.id),
+    kind: customerEntryKindEnum('kind').notNull(),
+    amount: paisa('amount').notNull(),
+    invoiceId: uuid('invoice_id').references(() => invoices.id),
+    method: settlementMethodEnum('method'),
+    reference: text('reference'),
+    occurredOn: date('occurred_on').notNull(),
+    cashMovementId: uuid('cash_movement_id').references(() => cashMovements.id),
+    note: text('note'),
+    recordedBy: uuid('recorded_by').references(() => users.id),
+  },
+  (t) => [
+    index('customer_account_entries_account_idx').on(t.accountId),
+    index('customer_account_entries_occurred_on_idx').on(t.occurredOn),
+    uniqueIndex('customer_account_entries_invoice_idx')
+      .on(t.invoiceId)
+      .where(sql`${t.deletedAt} is null and ${t.invoiceId} is not null`),
+    check('customer_account_entries_amount_positive', sql`${t.amount} > 0`),
+    // A charge points at its invoice and has no method; a payment the reverse.
+    check(
+      'customer_account_entries_shape',
+      sql`(${t.kind} = 'CHARGE' and ${t.invoiceId} is not null and ${t.method} is null and ${t.cashMovementId} is null) or (${t.kind} = 'PAYMENT' and ${t.invoiceId} is null and ${t.method} is not null)`,
+    ),
+    check(
+      'customer_account_entries_till_is_cash',
+      sql`${t.cashMovementId} is null or ${t.method} = 'CASH'`,
+    ),
   ],
 );
 

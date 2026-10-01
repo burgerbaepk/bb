@@ -34,6 +34,7 @@ import { ItemOptionsSheet } from './ItemOptionsSheet';
 import { ProductSearch, type ProductSearchHandle } from './ProductSearch';
 import { Cart } from './Cart';
 import { CustomerDialog } from './CustomerDialog';
+import { CreditSaleDialog } from '@/components/payment/CreditSaleDialog';
 import { DiscountDialog } from './DiscountDialog';
 import { PinConfirmDialog } from './PinConfirmDialog';
 import { OrdersQueueDialog } from './OrdersQueueDialog';
@@ -214,6 +215,7 @@ export function OrderScreen({
       : 0n,
   );
   const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
+  const [creditOpen, setCreditOpen] = useState(false);
   const [customerSaving, setCustomerSaving] = useState(false);
   const [customerError, setCustomerError] = useState<string | null>(null);
   const [discount, setDiscount] = useState<Paisa>(paisa(0n));
@@ -975,11 +977,29 @@ export function OrderScreen({
     });
   };
 
-  /** The finalize call itself, run once `PaymentSheet`'s `onFinalize` settles the payment. */
-  const handleFinalize = async (slices: readonly PaymentSliceDraft[], explicitOrderId?: string) => {
+  /**
+   * The finalize call itself, run once `PaymentSheet`'s `onFinalize` settles the payment.
+   *
+   * `account` makes it a credit sale (ADR 0036): whatever `slices` do not
+   * cover goes on that account, and the invoice is printed in its holder's
+   * name. Never offline — the balance and limit live on the server.
+   */
+  const handleFinalize = async (
+    slices: readonly PaymentSliceDraft[],
+    explicitOrderId?: string,
+    account?: { readonly accountId: string; readonly name: string },
+  ) => {
     const orderId = explicitOrderId ?? placedOrder?.id ?? realOrder?.id ?? null;
     if (orderId === null) {
       toast.show('error', 'There is no order to finalize.');
+      return;
+    }
+    if (account !== undefined && isOffline) {
+      setFinalizing(false);
+      toast.show(
+        'error',
+        'A credit sale needs the connection. Take cash, or wait until it is back.',
+      );
       return;
     }
 
@@ -1109,6 +1129,7 @@ export function OrderScreen({
       // above).
       slices: slices.map((slice) => ({ ...slice, amount: toPaisaWire(slice.amount) })),
       outlet,
+      account: account === undefined ? null : { accountId: account.accountId },
     });
     setFinalizing(false);
 
@@ -1118,10 +1139,17 @@ export function OrderScreen({
     }
 
     setPaymentOpen(false);
+    setCreditOpen(false);
     setFinalizedOffline(false);
     setFinalized(result.invoice);
+    // ADR 0036 — the server attached the account holder to the order; show
+    // their name on the finalized invoice the cashier is about to print.
+    if (account !== undefined) {
+      setCustomerName(account.name);
+      setRealOrder((prev) => (prev === null ? prev : { ...prev, customerName: account.name }));
+    }
 
-    const invoiceOrder =
+    const baseOrder =
       realOrder === null
         ? order
         : {
@@ -1129,6 +1157,8 @@ export function OrderScreen({
             deliveryAddress: order.deliveryAddress ?? null,
             deliveryCharge: order.deliveryCharge,
           };
+    const invoiceOrder =
+      account === undefined ? baseOrder : { ...baseOrder, customerName: account.name };
     if (activePrintPath === 'HTML_DIALOG') {
       invoicePrintTokenRef.current += 1;
       setInvoicePrintRequest({
@@ -1231,6 +1261,31 @@ export function OrderScreen({
         },
       ],
       orderId,
+    );
+  };
+
+  /**
+   * The credit sale — ADR 0036. Books the order exactly as express checkout
+   * does, then finalizes with whatever cash was taken now as the only slice
+   * and the rest on the chosen account.
+   */
+  const handleCreditFinalize = async (accountId: string, paidNow: Paisa, name: string) => {
+    setFinalizing(true);
+    let orderId = placedOrder?.id ?? realOrder?.id ?? null;
+    if (unsentLines(lines).length > 0 || orderId === null) {
+      const sent = await sendUnsentLines();
+      if (sent === null) {
+        setFinalizing(false);
+        return;
+      }
+      orderId = sent.orderId;
+    }
+    await handleFinalize(
+      paidNow > 0n
+        ? [{ method: 'CASH', amount: paidNow, attemptStatus: 'APPROVED', declinedReason: null }]
+        : [],
+      orderId,
+      { accountId, name },
     );
   };
 
@@ -1387,6 +1442,8 @@ export function OrderScreen({
         }}
         onViewBill={() => void handleViewBill()}
         onFinalize={() => void handleExpressFinalize()}
+        onCredit={() => setCreditOpen(true)}
+        creditDisabled={isOffline}
         finalizing={finalizing}
         onQtyChange={(key, delta) => setLines((current) => changeQty(current, key, delta))}
         onSetQty={(key, qty) => setLines((current) => setQty(current, key, qty))}
@@ -1439,6 +1496,17 @@ export function OrderScreen({
         offline={isOffline}
         onClose={() => setDiscountOpen(false)}
         onApply={(amount, reason) => void handleApplyDiscount(amount, reason)}
+      />
+
+      <CreditSaleDialog
+        key={`credit:${String(creditOpen)}`}
+        open={creditOpen}
+        total={previewTotals?.grandTotal ?? null}
+        pending={finalizing}
+        onClose={() => setCreditOpen(false)}
+        onConfirm={(accountId, paidNow, name) =>
+          void handleCreditFinalize(accountId, paidNow, name)
+        }
       />
 
       <CustomerDialog

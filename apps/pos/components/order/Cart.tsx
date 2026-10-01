@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Ban,
+  BookUser,
   Banknote,
   ClipboardCheck,
   ChefHat,
@@ -106,6 +107,12 @@ export interface CartProps {
   readonly onPrintKot?: () => void;
   readonly onViewBill?: () => void;
   readonly onFinalize: () => void;
+  /**
+   * ADR 0036 — the credit sale. Absent where the screen offers none; disabled
+   * offline, because the account balance and limit are checked on the server.
+   */
+  readonly onCredit?: (() => void) | undefined;
+  readonly creditDisabled?: boolean | undefined;
   readonly finalizing: boolean;
 }
 
@@ -148,6 +155,8 @@ export function Cart({
   onPrintKot = () => {},
   onViewBill = () => {},
   onFinalize,
+  onCredit,
+  creditDisabled = false,
   finalizing,
 }: CartProps) {
   const empty = lines.length === 0;
@@ -550,29 +559,44 @@ export function Cart({
             already looking when they commit, and because a finalize is
             irreversible under R5 — the figure being charged should not require
             a second glance up the panel to confirm. */}
-        <Button
-          className="min-h-14 font-semibold shadow-md"
-          tone="primary"
-          size="lg"
-          block
-          icon={Wallet}
-          onClick={onFinalize}
-          disabled={empty || finalizing}
-        >
-          {finalizing ? (
-            'Finalizing…'
-          ) : (
-            <>
-              Finalize order
-              {totals !== null && (
-                <>
-                  {' · '}
-                  <Money value={totals.grandTotal} symbol="Rs." />
-                </>
-              )}
-            </>
+        <div className={onCredit === undefined ? '' : 'grid grid-cols-[auto_minmax(0,1fr)] gap-2'}>
+          {/* ADR 0036 — beside Finalize and visibly secondary: credit is the
+            exception, and the express path stays the obvious one. */}
+          {onCredit !== undefined && (
+            <Button
+              className="min-h-14 shadow-sm"
+              size="lg"
+              icon={BookUser}
+              onClick={onCredit}
+              disabled={empty || finalizing || creditDisabled}
+            >
+              Credit
+            </Button>
           )}
-        </Button>
+          <Button
+            className="min-h-14 font-semibold shadow-md"
+            tone="primary"
+            size="lg"
+            block
+            icon={Wallet}
+            onClick={onFinalize}
+            disabled={empty || finalizing}
+          >
+            {finalizing ? (
+              'Finalizing…'
+            ) : (
+              <>
+                Finalize order
+                {totals !== null && (
+                  <>
+                    {' · '}
+                    <Money value={totals.grandTotal} symbol="Rs." />
+                  </>
+                )}
+              </>
+            )}
+          </Button>
+        </div>
 
         <p className="text-ink-subtle text-center text-xs">
           Express checkout: Ctrl + S or Ctrl + Enter
