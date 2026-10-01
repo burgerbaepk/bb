@@ -1247,6 +1247,7 @@ Each task has a default that unblocks the build. Start P1, P2, P3, P5, P6 during
 | P12 | Confirm whether either authority mandates a vendor string beyond "Powered by NA Technologies Ltd" | Go-live | §14.4 line | Najam | `receipt.footerLines` |
 | P13 | Confirm the check mode the restaurant wants | M10 | `BOTH_RATES` | Restaurant | settings `check.policy` |
 | P14 | Confirm whether PRA restricts the wording or format of a pre-payment check | Go-live | `NOT A TAX INVOICE` per §6.4 | Najam → PRA | Check template |
+| P15 | Confirm whether a meal given to an influencer for promotion is a taxable supply (ADR 0038) | Go-live | No invoice; booked as an expense | Restaurant's tax advisor → PRA | `apps/pos/lib/orders/influencer.ts` |
 
 ---
 

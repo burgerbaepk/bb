@@ -1,0 +1,3 @@
+ALTER TABLE "expenses" ADD COLUMN "order_id" uuid;--> statement-breakpoint
+ALTER TABLE "expenses" ADD CONSTRAINT "expenses_order_id_orders_id_fk" FOREIGN KEY ("order_id") REFERENCES "public"."orders"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "expenses_order_idx" ON "expenses" USING btree ("order_id") WHERE "expenses"."order_id" is not null and "expenses"."deleted_at" is null;

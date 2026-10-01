@@ -6,12 +6,14 @@ import { z } from 'zod';
 import { dbWrite, expenses, writeAudit } from '@natech/db';
 import { parsePaisa } from '@natech/domain';
 import { assertPermission, requestContext, requireOperator } from '../auth/session';
+import { resolveCategory } from './categories';
 
 const ExpenseInput = z.object({
   incurredOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Choose a date.'),
   category: z.string().trim().min(1, 'Choose a category.').max(80),
   vendor: z.string().trim().max(120).nullable(),
-  description: z.string().trim().min(2, 'Describe the expense.').max(240),
+  // M32 — optional on the form; a blank one becomes the category below.
+  description: z.string().trim().max(240).nullable(),
   amount: z.string().trim().min(1),
   paymentMethod: z.enum(['CASH', 'CARD', 'WALLET', 'QR']).nullable(),
   reference: z.string().trim().max(120).nullable(),
@@ -36,7 +38,7 @@ export async function createExpenseAction(
     incurredOn: form.get('incurredOn'),
     category: form.get('category'),
     vendor: optional(form.get('vendor')),
-    description: form.get('description'),
+    description: optional(form.get('description')),
     amount: form.get('amount'),
     paymentMethod: optional(form.get('paymentMethod')),
     reference: optional(form.get('reference')),
@@ -53,9 +55,16 @@ export async function createExpenseAction(
 
   const context = await requestContext();
   await dbWrite().transaction(async (tx) => {
+    const category = await resolveCategory(tx, parsed.data.category);
     const result = await tx
       .insert(expenses)
-      .values({ ...parsed.data, amount, createdBy: operator.id })
+      .values({
+        ...parsed.data,
+        category,
+        description: parsed.data.description ?? category,
+        amount,
+        createdBy: operator.id,
+      })
       .returning({ id: expenses.id });
     const created = result[0];
     if (created === undefined) throw new Error('Creating the expense returned no row.');
@@ -68,7 +77,7 @@ export async function createExpenseAction(
         action: 'EXPENSE_CREATED',
         after: {
           incurredOn: parsed.data.incurredOn,
-          category: parsed.data.category,
+          category,
           amount: amount.toString(),
         },
       },
@@ -85,11 +94,19 @@ export async function deleteExpenseAction(id: string): Promise<void> {
   const context = await requestContext();
   await dbWrite().transaction(async (tx) => {
     const before = await tx
-      .select({ id: expenses.id, amount: expenses.amount, category: expenses.category })
+      .select({
+        id: expenses.id,
+        amount: expenses.amount,
+        category: expenses.category,
+        orderId: expenses.orderId,
+      })
       .from(expenses)
       .where(and(eq(expenses.id, id), isNull(expenses.deletedAt)))
       .then((rows) => rows[0]);
-    if (before === undefined) return;
+    // ADR 0038 — an influencer meal's expense is the only record of food that
+    // left the kitchen unpaid; its order is voided and has no invoice.
+    // Deleting it would make the meal vanish from every report.
+    if (before === undefined || before.orderId !== null) return;
     await tx
       .update(expenses)
       .set({ deletedAt: new Date(), updatedAt: new Date() })

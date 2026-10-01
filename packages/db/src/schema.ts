@@ -901,10 +901,20 @@ export const expenses = pgTable(
     paymentMethod: paymentMethodEnum('payment_method'),
     reference: text('reference'),
     createdBy: uuid('created_by').references(() => users.id),
+    /**
+     * ADR 0038 — the influencer meal this expense books. Set only by
+     * `recordInfluencerMealAction`, in the transaction that voids the order,
+     * so a voided order with this link is a meal given away, not a sale lost.
+     */
+    orderId: uuid('order_id').references(() => orders.id),
   },
   (t) => [
     index('expenses_incurred_on_idx').on(t.incurredOn),
     index('expenses_category_idx').on(t.category),
+    // One meal, one expense: a double tap or a second terminal cannot book it twice.
+    uniqueIndex('expenses_order_idx')
+      .on(t.orderId)
+      .where(sql`${t.orderId} is not null and ${t.deletedAt} is null`),
   ],
 );
 

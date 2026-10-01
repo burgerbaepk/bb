@@ -118,6 +118,14 @@ again built in one session on the product owner's instruction:
 
 Migration `0011` is applied to the pilot database (2026-10-01).
 
+**M32** made `/admin/expenses` a category pick-list (a typed duplicate folds
+into the existing spelling, any case) and added **influencer meals** from the
+till's Customer dialog — [ADR 0038](docs/decisions/0038-influencer-meals.md).
+The order closes `VOIDED` with no invoice, and an `Influencers` expense linked
+by `expenses.order_id` is written in the same transaction; manager or owner
+only (`discount.apply`); that expense cannot be deleted. Migration `0012` is
+applied to the pilot database (2026-10-02).
+
 ## The seventeen rules
 
 §2 lists R1–R17 and the mechanism that enforces each. The ones that bite most

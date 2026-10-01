@@ -57,6 +57,7 @@ import {
 } from '@/lib/orders/actions';
 import type { ExistingOrderSummary } from '@/lib/orders/queries';
 import { finalizeOrderAction } from '@/lib/payments/actions';
+import { recordInfluencerMealAction } from '@/lib/orders/influencer';
 import { printBufferViaBridge, printBufferViaWebUsb } from '@/lib/printing/client';
 import { useOffline } from '@/lib/offline/OfflineProvider';
 import { buildQueuedOrder } from '@/lib/offline/buildQueuedOrder';
@@ -1289,6 +1290,39 @@ export function OrderScreen({
     );
   };
 
+  /**
+   * The influencer meal — ADR 0038. Books the order exactly as the credit
+   * sale does, then closes it with no invoice; the server writes the expense
+   * in the same transaction.
+   */
+  const handleInfluencerMeal = async (name: string) => {
+    setCustomerSaving(true);
+    setCustomerError(null);
+    let orderId = placedOrder?.id ?? realOrder?.id ?? null;
+    if (unsentLines(lines).length > 0 || orderId === null) {
+      const sent = await sendUnsentLines();
+      if (sent === null) {
+        setCustomerSaving(false);
+        return;
+      }
+      orderId = sent.orderId;
+    }
+    let result: Awaited<ReturnType<typeof recordInfluencerMealAction>>;
+    try {
+      result = await recordInfluencerMealAction({ orderId, name });
+    } catch {
+      result = { ok: false, error: 'Could not record the influencer meal. Please retry.' };
+    }
+    setCustomerSaving(false);
+    if (!result.ok) {
+      setCustomerError(result.error);
+      return;
+    }
+    toast.show('success', `Influencer meal for ${name} recorded as an expense`);
+    setCustomerDialogOpen(false);
+    resetOrderState();
+  };
+
   // Fast counter checkout. Both shortcuts intentionally share the exact same
   // path as the visible Finalize button so keyboard and touch sales cannot
   // drift into different payment behavior.
@@ -1519,6 +1553,14 @@ export function OrderScreen({
         onClose={() => setCustomerDialogOpen(false)}
         onSave={(phone, name) => void handleSaveCustomer(phone, name)}
         onRemove={() => void handleRemoveCustomer()}
+        influencerValue={subtotal}
+        influencerAllowed={canDiscount && !isOffline}
+        influencerNote={
+          isOffline
+            ? 'Recording an influencer meal needs the connection.'
+            : 'Only a manager or the owner can record an influencer meal.'
+        }
+        onInfluencer={(name) => void handleInfluencerMeal(name)}
       />
 
       {/* Existing floor orders can still arrive with `?action=pay`. Normal

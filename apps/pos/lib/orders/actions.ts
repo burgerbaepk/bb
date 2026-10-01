@@ -20,7 +20,7 @@ import {
   withOrderNoRetry,
   writeAudit,
 } from '@natech/db';
-import { IllegalTransitionError, orderMachine, qtyToString, tableMachine } from '@natech/domain';
+import { IllegalTransitionError, orderMachine, qtyToString } from '@natech/domain';
 import type { TableStatus } from '@natech/domain';
 import { OrderTypeSchema, PaisaSchema, QtySchema, TaxClassKeySchema } from '@natech/contracts';
 import type { Order, TaxClassKey, TrayOrder } from '@natech/contracts';
@@ -35,6 +35,7 @@ import {
 import type { TillIdentity } from '../auth/session';
 import { computeBusinessDate } from './businessDate';
 import { loadPriceableOrder } from './pricing';
+import { releaseTableIfIdle } from './releaseTable';
 import { loadOrdersQueue } from './queries';
 import { currentOrderStatus, type PersistedOrderStatus } from './status';
 
@@ -730,71 +731,12 @@ export async function voidOrderAction(input: VoidOrderInput): Promise<VoidOrderR
         );
       }
 
-      // Free the table if this was its last open order — a table left in
-      // ORDERED/SERVED/PAYING after its only order is voided otherwise keeps
-      // offering Take Payment for an order that no longer exists, and the
-      // floor plan reads as still occupied when it is not (2026-08-27; the
-      // reported "Table 9 still shows Take Payment" symptom). Skipped
-      // entirely when the table is BLOCKED, RESERVED, or already
-      // FREE/CLEANING — those are states a manager set on purpose, not a
-      // side effect of *this* order dying.
       if (existing.tableId !== null) {
-        const stillOpen = await tx
-          .select({ id: orders.id })
-          .from(orders)
-          .where(
-            and(
-              eq(orders.tableId, existing.tableId),
-              isNull(orders.deletedAt),
-              notInArray(orders.status, ['FINALIZED', 'VOIDED']),
-            ),
-          )
-          .limit(1);
-
-        if (stillOpen.length === 0) {
-          const tableRows = await tx
-            .select({ status: tables.status })
-            .from(tables)
-            .where(and(eq(tables.id, existing.tableId), isNull(tables.deletedAt)));
-          const tableRow = tableRows[0];
-          const persistedTableStatus = tableRow?.status as
-            TableStatus | 'CHECK_PRINTED' | undefined;
-          const currentTableStatus =
-            persistedTableStatus === 'CHECK_PRINTED' ? 'SERVED' : persistedTableStatus;
-          const ACTIVE_SERVICE_STATUSES: readonly TableStatus[] = [
-            'SEATED',
-            'ORDERED',
-            'SERVED',
-            'PAYING',
-          ];
-
-          if (
-            currentTableStatus !== undefined &&
-            ACTIVE_SERVICE_STATUSES.includes(currentTableStatus)
-          ) {
-            const fromTableStatus = currentTableStatus;
-            const nextTableStatus: TableStatus = tableMachine.can(fromTableStatus, 'FREE')
-              ? 'FREE'
-              : 'CLEANING';
-
-            await tx
-              .update(tables)
-              .set({ status: nextTableStatus, statusChangedAt: new Date(), updatedAt: new Date() })
-              .where(eq(tables.id, existing.tableId));
-
-            await writeAudit(
-              tx,
-              { actorId: viewer.id, ip: context.ip ?? undefined, ua: context.ua ?? undefined },
-              {
-                entity: 'tables',
-                entityId: existing.tableId,
-                action: 'TABLE_FREED_AFTER_VOID',
-                before: { status: persistedTableStatus },
-                after: { status: nextTableStatus },
-              },
-            );
-          }
-        }
+        await releaseTableIfIdle(tx, existing.tableId, {
+          actorId: viewer.id,
+          ip: context.ip ?? undefined,
+          ua: context.ua ?? undefined,
+        });
       }
     });
   } catch (error) {
